@@ -1,0 +1,81 @@
+{
+  "1528151508346994739:2026-07-19": {
+    "guildId": "1528151508346994739",
+    "weekStart": 1784498400000,
+    "weekEnd": 1785103199999,
+    "messageIds": [
+      "1529812259986083852",
+      "1529812261684904058"
+    ],
+    "publishedBy": "524746083566616587",
+    "automatic": false,
+    "publishedAt": 1784806066043
+  },
+  "active-ranking:1528151508346994739": {
+    "guildId": "1528151508346994739",
+    "messageIds": [
+      "1529952539242659872"
+    ],
+    "updatedAt": 1784839510583
+  },
+  "reset-test:1528151508346994739:1784819700000": {
+    "guildId": "1528151508346994739",
+    "previousWeekStart": 1784819400000,
+    "previousWeekEnd": 1784819699999,
+    "currentWeekStart": 1784819700000,
+    "messageIds": [
+      "1529870412769394949"
+    ],
+    "resetAt": 1784819929834
+  },
+  "reset-test:1528151508346994739:1784820000000": {
+    "guildId": "1528151508346994739",
+    "previousWeekStart": 1784819700000,
+    "previousWeekEnd": 1784819999999,
+    "currentWeekStart": 1784820000000,
+    "messageIds": [
+      "1529870727493321036"
+    ],
+    "resetAt": 1784820005200
+  },
+  "reset-test:1528151508346994739:1784820300000": {
+    "guildId": "1528151508346994739",
+    "previousWeekStart": 1784820000000,
+    "previousWeekEnd": 1784820299999,
+    "currentWeekStart": 1784820300000,
+    "messageIds": [
+      "1529871987676024914"
+    ],
+    "resetAt": 1784820305321
+  },
+  "reset-test:1528151508346994739:1784820600000": {
+    "guildId": "1528151508346994739",
+    "previousWeekStart": 1784820300000,
+    "previousWeekEnd": 1784820599999,
+    "currentWeekStart": 1784820600000,
+    "messageIds": [
+      "1529873245569028323"
+    ],
+    "resetAt": 1784820606337
+  },
+  "reset-test:1528151508346994739:1784821800000": {
+    "guildId": "1528151508346994739",
+    "previousWeekStart": 1784821500000,
+    "previousWeekEnd": 1784821799999,
+    "currentWeekStart": 1784821800000,
+    "messageIds": [
+      "1529878285008375971"
+    ],
+    "resetAt": 1784821809064
+  },
+  "reset-test:1528151508346994739:1784839500000": {
+    "guildId": "1528151508346994739",
+    "previousWeekStart": 1784839200000,
+    "previousWeekEnd": 1784839499999,
+    "currentWeekStart": 1784839500000,
+    "messageIds": [
+      "1529952538043093064"
+    ],
+    "resetAt": 1784839510584
+  }
+}

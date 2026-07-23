@@ -1,0 +1,16 @@
+{
+  "name": "police-operation-bot",
+  "version": "1.0.0",
+  "description": "Bot Discord de gestion des opérations de police",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "deploy": "node deploy-commands.js"
+  },
+  "license": "ISC",
+  "dependencies": {
+    "discord.js": "^14.27.0",
+    "dotenv": "^17.0.0",
+    "pg": "^8.16.3"
+  }
+}

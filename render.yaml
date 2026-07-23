@@ -1,0 +1,39 @@
+services:
+  - type: worker
+    name: police-operation-bot
+    runtime: node
+    plan: free
+    buildCommand: npm install --omit=dev
+    startCommand: npm start
+    autoDeploy: true
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: TOKEN
+        sync: false
+      - key: DATABASE_URL
+        sync: false
+      - key: OPERATIONS_CHANNEL_ID
+        sync: false
+      - key: STATS_CHANNEL_ID
+        sync: false
+      - key: SUPERVISOR_ROLE_ID
+        sync: false
+      - key: CHIEF_ROLE_ID
+        sync: false
+      - key: POLICE_ROLE_ID
+        sync: false
+      - key: REPORT_TIMEZONE
+        value: Europe/Brussels
+      - key: MINOR_LEADER
+        value: "4000"
+      - key: MINOR_MEMBER
+        value: "3000"
+      - key: MEDIUM_LEADER
+        value: "9000"
+      - key: MEDIUM_MEMBER
+        value: "7000"
+      - key: MAJOR_LEADER
+        value: "15000"
+      - key: MAJOR_MEMBER
+        value: "12000"

@@ -1,0 +1,36 @@
+[
+  {
+    "id": "OP-0001",
+    "guildId": "1528151508346994739",
+    "leaderId": "524746083566616587",
+    "operationKey": "house",
+    "operationName": "House",
+    "operationEmoji": "🏠",
+    "categoryKey": "minor",
+    "memberIds": [
+      "943268075166375958",
+      "484408697548963841"
+    ],
+    "proofUrl": null,
+    "proofName": null,
+    "status": "preparation",
+    "createdAt": 1784809404061
+  },
+  {
+    "id": "OP-0002",
+    "guildId": "1528151508346994739",
+    "leaderId": "524746083566616587",
+    "operationKey": "drug_sell",
+    "operationName": "Drug Sell",
+    "operationEmoji": "💊",
+    "categoryKey": "minor",
+    "memberIds": [
+      "943268075166375958",
+      "1319019365869555792"
+    ],
+    "proofUrl": null,
+    "proofName": null,
+    "status": "preparation",
+    "createdAt": 1784809583750
+  }
+]
