@@ -190,42 +190,36 @@ client.on(Events.InteractionCreate, async (interaction) => {
         return;
       }
 
-      // Discord limite une liste déroulante personnalisée à 25 choix.
-      const displayedPoliceMembers = [...policeMembers.values()].slice(0, 25);
-      const memberSelect = new StringSelectMenuBuilder()
-        .setCustomId(`operation_members_select:${operation.id}`)
-        .setPlaceholder("Sélectionne les policiers participants")
-        .setMinValues(1)
-        .setMaxValues(Math.min(20, displayedPoliceMembers.length))
-        .addOptions(
-          displayedPoliceMembers.map((member) => ({
-            label: member.displayName.slice(0, 100),
-            value: member.id,
-            default: operation.memberIds.includes(member.id),
-          }))
-        );
+      await interaction.editReply(createMemberSelectionView(operation, interaction.guild, 0));
+      return;
+    }
 
-      const cancelButton = new ButtonBuilder()
-        .setCustomId(`operation_members_cancel:${operation.id}`)
-        .setLabel("Annuler")
-        .setEmoji("↩️")
-        .setStyle(ButtonStyle.Secondary);
+    if (
+      interaction.isButton() &&
+      interaction.customId.startsWith("operation_members_page:")
+    ) {
+      const operation = getOperationFromInteraction(interaction);
+      if (!(await verifyLeader(interaction, operation))) return;
+      if (!(await verifyPreparation(interaction, operation))) return;
+
+      const requestedPage = Number(interaction.customId.split(":")[2] || 0);
+      await interaction.editReply(
+        createMemberSelectionView(operation, interaction.guild, requestedPage)
+      );
+      return;
+    }
+
+    if (
+      interaction.isButton() &&
+      interaction.customId.startsWith("operation_members_done:")
+    ) {
+      const operation = getOperationFromInteraction(interaction);
+      if (!(await verifyLeader(interaction, operation))) return;
+      if (!(await verifyPreparation(interaction, operation))) return;
 
       await interaction.editReply({
-        embeds: [
-          createOperationEmbed(operation).setDescription(
-            [
-              "👥 **Sélection des participants**",
-              "",
-              "Choisis les policiers ayant participé à l’opération.",
-              "Le chef d’opération sera retiré automatiquement de la liste.",
-            ].join("\n")
-          ),
-        ],
-        components: [
-          new ActionRowBuilder().addComponents(memberSelect),
-          new ActionRowBuilder().addComponents(cancelButton),
-        ],
+        embeds: [createOperationEmbed(operation)],
+        components: [createOperationButtons(operation.id)],
       });
       return;
     }
@@ -238,20 +232,29 @@ client.on(Events.InteractionCreate, async (interaction) => {
       if (!(await verifyLeader(interaction, operation))) return;
       if (!(await verifyPreparation(interaction, operation))) return;
 
-      const selectedIds = [...new Set(interaction.values.filter((id) => id !== operation.leaderId))];
-      const validPoliceIds = [];
-      for (const userId of selectedIds) {
-        const member = await interaction.guild.members.fetch(userId).catch(() => null);
-        if (member?.roles.cache.has(config.policeRoleId)) validPoliceIds.push(userId);
-      }
-      operation.memberIds = validPoliceIds;
+      const page = Number(interaction.customId.split(":")[2] || 0);
+      const policeMembers = getEligiblePoliceMembers(interaction.guild, operation);
+      const pageMembers = [...policeMembers.values()].slice(page * 25, page * 25 + 25);
+      const pageMemberIds = new Set(pageMembers.map((member) => member.id));
+
+      const selectedIds = new Set(
+        interaction.values.filter(
+          (id) => id !== operation.leaderId && pageMemberIds.has(id)
+        )
+      );
+
+      // Conserve les sélections faites sur les autres pages et remplace seulement
+      // celles de la page actuellement affichée.
+      const preservedIds = (operation.memberIds || []).filter(
+        (id) => !pageMemberIds.has(id)
+      );
+      operation.memberIds = [...new Set([...preservedIds, ...selectedIds])];
       operations.set(operation.id, operation);
       saveOperations();
 
-      await interaction.editReply({
-        embeds: [createOperationEmbed(operation)],
-        components: [createOperationButtons(operation.id)],
-      });
+      await interaction.editReply(
+        createMemberSelectionView(operation, interaction.guild, page)
+      );
       return;
     }
 
@@ -1520,6 +1523,111 @@ async function displayConfigurationStatus(readyClient) {
   }
 
   console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+}
+
+function getEligiblePoliceMembers(guild, operation) {
+  return guild.members.cache
+    .filter(
+      (member) =>
+        !member.user.bot &&
+        member.id !== operation.leaderId &&
+        member.roles.cache.has(config.policeRoleId)
+    )
+    .sort((first, second) =>
+      first.displayName.localeCompare(second.displayName, "fr", {
+        sensitivity: "base",
+      })
+    );
+}
+
+function createMemberSelectionView(operation, guild, requestedPage = 0) {
+  const policeMembers = [...getEligiblePoliceMembers(guild, operation).values()];
+  const totalPages = Math.max(1, Math.ceil(policeMembers.length / 25));
+  const page = Math.min(Math.max(Number(requestedPage) || 0, 0), totalPages - 1);
+  const pageMembers = policeMembers.slice(page * 25, page * 25 + 25);
+
+  if (pageMembers.length === 0) {
+    return {
+      embeds: [
+        createOperationEmbed(operation).setDescription(
+          "❌ Aucun autre membre avec le rôle Police n’est disponible."
+        ),
+      ],
+      components: [createOperationButtons(operation.id)],
+    };
+  }
+
+  const selectedOnPage = pageMembers.filter((member) =>
+    (operation.memberIds || []).includes(member.id)
+  ).length;
+
+  const memberSelect = new StringSelectMenuBuilder()
+    .setCustomId(`operation_members_select:${operation.id}:${page}`)
+    .setPlaceholder(
+      `Policiers ${page * 25 + 1}-${page * 25 + pageMembers.length} sur ${policeMembers.length}`
+    )
+    .setMinValues(0)
+    .setMaxValues(pageMembers.length)
+    .addOptions(
+      pageMembers.map((member) => ({
+        label: member.displayName.slice(0, 100),
+        value: member.id,
+        description: `ID Discord : ${member.id}`.slice(0, 100),
+        default: (operation.memberIds || []).includes(member.id),
+      }))
+    );
+
+  const previousButton = new ButtonBuilder()
+    .setCustomId(`operation_members_page:${operation.id}:${page - 1}`)
+    .setLabel("Précédent")
+    .setEmoji("⬅️")
+    .setStyle(ButtonStyle.Secondary)
+    .setDisabled(page === 0);
+
+  const nextButton = new ButtonBuilder()
+    .setCustomId(`operation_members_page:${operation.id}:${page + 1}`)
+    .setLabel("Suivant")
+    .setEmoji("➡️")
+    .setStyle(ButtonStyle.Secondary)
+    .setDisabled(page >= totalPages - 1);
+
+  const doneButton = new ButtonBuilder()
+    .setCustomId(`operation_members_done:${operation.id}`)
+    .setLabel("Terminer")
+    .setEmoji("✅")
+    .setStyle(ButtonStyle.Success);
+
+  const cancelButton = new ButtonBuilder()
+    .setCustomId(`operation_members_cancel:${operation.id}`)
+    .setLabel("Annuler")
+    .setEmoji("↩️")
+    .setStyle(ButtonStyle.Danger);
+
+  return {
+    embeds: [
+      createOperationEmbed(operation).setDescription(
+        [
+          "👥 **Sélection des participants**",
+          "",
+          `Page **${page + 1}/${totalPages}** • ${policeMembers.length} policier(s) disponible(s)`,
+          `Sélectionnés au total : **${(operation.memberIds || []).length}**`,
+          `Sélectionnés sur cette page : **${selectedOnPage}**`,
+          "",
+          "Sélectionne les policiers, change de page si nécessaire, puis clique sur **Terminer**.",
+          "Le chef d’opération est retiré automatiquement.",
+        ].join("\n")
+      ),
+    ],
+    components: [
+      new ActionRowBuilder().addComponents(memberSelect),
+      new ActionRowBuilder().addComponents(
+        previousButton,
+        nextButton,
+        doneButton,
+        cancelButton
+      ),
+    ],
+  };
 }
 
 function createOperationEmbed(operation) {
