@@ -19,6 +19,21 @@ const {
 const config = require("./config");
 const storage = require("./storage");
 
+// Petit serveur HTTP requis par Render Web Service et les services de monitoring.
+const express = require("express");
+const app = express();
+const PORT = Number(process.env.PORT) || 3000;
+
+app.get("/", (_req, res) => {
+  res.status(200).send("Police Operation Bot is online");
+});
+
+app.get("/health", (_req, res) => {
+  res.status(200).json({ status: "ok", discord: client?.isReady?.() ?? false });
+});
+
+let httpServer;
+
 const TOKEN = process.env.TOKEN;
 const CHIEF_ROLE_ID = process.env.CHIEF_ROLE_ID?.trim() || "";
 const DATA_FILE = path.join(__dirname, "data", "operations.json");
@@ -68,6 +83,12 @@ client.on(Events.InteractionCreate, async (interaction) => {
     console.log(
       `[INTERACTION] ${interaction.user.tag} (${interaction.user.id}) -> ${interactionName}`
     );
+
+    // Discord exige une première réponse en moins de 3 secondes.
+    // On confirme immédiatement tous les boutons et menus, puis on modifie le message.
+    if (interaction.isMessageComponent() && !interaction.deferred && !interaction.replied) {
+      await interaction.deferUpdate();
+    }
     if (interaction.isChatInputCommand()) {
       if (interaction.commandName === "operation") {
         await handleOperationCommand(interaction);
@@ -98,7 +119,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
       const operationType = config.operationTypes[operationKey];
 
       if (!operationType) {
-        await interaction.reply({ content: "❌ Cette opération n’existe pas.", ephemeral: true });
+        await respondEphemeral(interaction, "❌ Cette opération n’existe pas.");
         return;
       }
 
@@ -130,7 +151,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
       operations.set(operation.id, operation);
       saveOperations();
 
-      await interaction.update({
+      await interaction.editReply({
         content: `✅ Rapport **${operation.id}** créé dans ce salon.`,
         embeds: [],
         components: [],
@@ -161,10 +182,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
         );
 
       if (policeMembers.size === 0) {
-        await interaction.reply({
-          content: "❌ Aucun autre membre avec le rôle Police n’est disponible.",
-          ephemeral: true,
-        });
+        await respondEphemeral(interaction, "❌ Aucun autre membre avec le rôle Police n’est disponible.");
         return;
       }
 
@@ -189,7 +207,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
         .setEmoji("↩️")
         .setStyle(ButtonStyle.Secondary);
 
-      await interaction.update({
+      await interaction.editReply({
         embeds: [
           createOperationEmbed(operation).setDescription(
             [
@@ -226,7 +244,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
       operations.set(operation.id, operation);
       saveOperations();
 
-      await interaction.update({
+      await interaction.editReply({
         embeds: [createOperationEmbed(operation)],
         components: [createOperationButtons(operation.id)],
       });
@@ -240,7 +258,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
       const operation = getOperationFromInteraction(interaction);
       if (!(await verifyLeader(interaction, operation))) return;
 
-      await interaction.update({
+      await interaction.editReply({
         embeds: [createOperationEmbed(operation)],
         components: [createOperationButtons(operation.id)],
       });
@@ -273,7 +291,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
         .setEmoji("❌")
         .setStyle(ButtonStyle.Danger);
 
-      await interaction.update({
+      await interaction.editReply({
         embeds: [
           createOperationEmbed(operation).setDescription(
             [
@@ -320,7 +338,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
       const proofKey = `${interaction.guildId}:${interaction.channelId}:${interaction.user.id}`;
       pendingProofs.delete(proofKey);
 
-      await interaction.update({
+      await interaction.editReply({
         embeds: [createOperationEmbed(operation)],
         components: [createOperationButtons(operation.id)],
       });
@@ -336,18 +354,12 @@ client.on(Events.InteractionCreate, async (interaction) => {
       if (!(await verifyPreparation(interaction, operation))) return;
 
       if (operation.memberIds.length === 0) {
-        await interaction.reply({
-          content: "❌ Tu dois ajouter au moins un policier avant de soumettre le rapport.",
-          ephemeral: true,
-        });
+        await respondEphemeral(interaction, "❌ Tu dois ajouter au moins un policier avant de soumettre le rapport.");
         return;
       }
 
       if (!operation.proofUrl) {
-        await interaction.reply({
-          content: "❌ Tu dois ajouter une preuve avant de soumettre le rapport.",
-          ephemeral: true,
-        });
+        await respondEphemeral(interaction, "❌ Tu dois ajouter une preuve avant de soumettre le rapport.");
         return;
       }
 
@@ -360,7 +372,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
       operations.set(operation.id, operation);
       saveOperations();
 
-      await interaction.update({
+      await interaction.editReply({
         content: null,
         embeds: [createOperationEmbed(operation)],
         components: [createReviewButtons(operation.id)],
@@ -401,10 +413,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
       if (!(await verifySupervisor(interaction, operation))) return;
 
       if (!operation || operation.status !== "pending") {
-        await interaction.reply({
-          content: "❌ Ce rapport est introuvable ou a déjà été traité.",
-          ephemeral: true,
-        });
+        await respondEphemeral(interaction, "❌ Ce rapport est introuvable ou a déjà été traité.");
         return;
       }
 
@@ -414,7 +423,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
       operations.set(operation.id, operation);
       saveOperations();
 
-      await interaction.update({
+      await interaction.editReply({
         content: null,
         embeds: [createOperationEmbed(operation)],
         components: [],
@@ -431,10 +440,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
       if (!(await verifySupervisor(interaction, operation))) return;
 
       if (!operation || operation.status !== "pending") {
-        await interaction.reply({
-          content: "❌ Ce rapport est introuvable ou a déjà été traité.",
-          ephemeral: true,
-        });
+        await respondEphemeral(interaction, "❌ Ce rapport est introuvable ou a déjà été traité.");
         return;
       }
 
@@ -444,7 +450,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
       operations.set(operation.id, operation);
       saveOperations();
 
-      await interaction.update({
+      await interaction.editReply({
         content: null,
         embeds: [createOperationEmbed(operation)],
         components: [],
@@ -822,22 +828,25 @@ function formatStatsBlock(section, rewardKey) {
   return rows.join("\n");
 }
 
-// MODE TEST : une « semaine » dure 5 minutes.
-// Toutes les commandes de prime, classement et rapport utilisent donc
-// la période de 5 minutes en cours.
-const TEST_PERIOD_MS = 5 * 60 * 1000;
-
+// Semaine réelle : du lundi à 00:00 au dimanche à 23:59:59
+// dans le fuseau défini par REPORT_TIMEZONE.
 function getCurrentWeekRange(reference = new Date()) {
-  const timestamp = reference.getTime();
-  const startTime = Math.floor(timestamp / TEST_PERIOD_MS) * TEST_PERIOD_MS;
-  const start = new Date(startTime);
-  const end = new Date(startTime + TEST_PERIOD_MS - 1);
+  const start = new Date(reference);
+  const day = start.getDay();
+  const daysSinceMonday = day === 0 ? 6 : day - 1;
+  start.setHours(0, 0, 0, 0);
+  start.setDate(start.getDate() - daysSinceMonday);
+
+  const end = new Date(start);
+  end.setDate(end.getDate() + 7);
+  end.setMilliseconds(end.getMilliseconds() - 1);
   return { start, end };
 }
 
 function getPreviousWeekRange(reference = new Date()) {
   const current = getCurrentWeekRange(reference);
-  const start = new Date(current.start.getTime() - TEST_PERIOD_MS);
+  const start = new Date(current.start);
+  start.setDate(start.getDate() - 7);
   const end = new Date(current.start.getTime() - 1);
   return { start, end };
 }
@@ -925,12 +934,12 @@ async function createWeeklyReportEmbeds(guild, range) {
 }
 
 function startWeeklyReportScheduler(clientInstance) {
-  console.log("🧪 MODE TEST activé : rapport et remise à zéro toutes les 5 minutes.");
+  console.log("📅 Planificateur hebdomadaire activé (semaine du lundi au dimanche).");
 
-  // Vérifie rapidement au démarrage, puis toutes les 10 secondes afin de
-  // détecter le passage à la nouvelle période de 5 minutes.
+  // Vérification au démarrage puis chaque minute. La clé de période empêche
+  // toute publication en double après un redémarrage.
   setTimeout(() => processWeeklyRollover(clientInstance), 5 * 1000);
-  setInterval(() => processWeeklyRollover(clientInstance), 10 * 1000);
+  setInterval(() => processWeeklyRollover(clientInstance), 60 * 1000);
 }
 
 async function processWeeklyRollover(clientInstance) {
@@ -1030,7 +1039,7 @@ async function processWeeklyRollover(clientInstance) {
 
       saveOperations();
       console.log(
-        `🧪 Nouvelle période de test sur ${guild.name} : ${oldOperations.length} ancienne(s) opération(s) retirée(s) du calcul, messages conservés, primes remises à zéro.`
+        `📅 Nouvelle semaine sur ${guild.name} : ${oldOperations.length} ancienne(s) opération(s) retirée(s) du calcul, messages conservés, primes remises à zéro.`
       );
     }
   } catch (error) {
@@ -1173,6 +1182,14 @@ function saveOperations() {
   storage.saveState("operations", [...operations.values()], DATA_FILE);
 }
 
+async function respondEphemeral(interaction, content) {
+  const payload = { content, ephemeral: true };
+  if (interaction.deferred || interaction.replied) {
+    return interaction.followUp(payload).catch(() => null);
+  }
+  return interaction.reply(payload).catch(() => null);
+}
+
 function getOperationFromInteraction(interaction) {
   const operationId = interaction.customId.split(":")[1];
   return operations.get(operationId);
@@ -1180,11 +1197,11 @@ function getOperationFromInteraction(interaction) {
 
 async function verifyLeader(interaction, operation) {
   if (!operation) {
-    await interaction.reply({ content: "❌ Cette opération est introuvable.", ephemeral: true });
+    await respondEphemeral(interaction, "❌ Cette opération est introuvable.");
     return false;
   }
   if (interaction.user.id !== operation.leaderId) {
-    await interaction.reply({ content: "❌ Seul le chef de cette opération peut utiliser ce bouton.", ephemeral: true });
+    await respondEphemeral(interaction, "❌ Seul le chef de cette opération peut utiliser ce bouton.");
     return false;
   }
   return true;
@@ -1192,7 +1209,7 @@ async function verifyLeader(interaction, operation) {
 
 async function verifyPreparation(interaction, operation) {
   if (operation.status !== "preparation") {
-    await interaction.reply({ content: "❌ Cette opération a déjà été soumise et ne peut plus être modifiée.", ephemeral: true });
+    await respondEphemeral(interaction, "❌ Cette opération a déjà été soumise et ne peut plus être modifiée.");
     return false;
   }
   return true;
@@ -1261,21 +1278,19 @@ async function verifySupervisor(interaction, operation = null) {
   );
 
   if (!isConfiguredId(config.supervisorRoleId) && !isConfiguredId(CHIEF_ROLE_ID)) {
-    await interaction.reply({
-      content:
-        "❌ Aucun rôle de validation n’est configuré. Ajoute `SUPERVISOR_ROLE_ID` et/ou `CHIEF_ROLE_ID` dans le fichier `.env`.",
-      ephemeral: true,
-    });
+    await respondEphemeral(
+      interaction,
+      "❌ Aucun rôle de validation n’est configuré. Ajoute `SUPERVISOR_ROLE_ID` et/ou `CHIEF_ROLE_ID` dans le fichier `.env`."
+    );
     return false;
   }
 
   if (!isController && !isChief) {
     console.log("Résultat : REFUSÉ — aucun rôle autorisé détecté.");
-    await interaction.reply({
-      content:
-        "❌ Seuls les membres ayant le rôle **Operations Controller** ou **Chief of Police** peuvent valider ou refuser ce rapport.",
-      ephemeral: true,
-    });
+    await respondEphemeral(
+      interaction,
+      "❌ Seuls les membres ayant le rôle **Operations Controller** ou **Chief of Police** peuvent valider ou refuser ce rapport."
+    );
     return false;
   }
 
@@ -1503,6 +1518,10 @@ function isValidImage(attachment) {
 
 async function bootstrap() {
   try {
+    httpServer = app.listen(PORT, "0.0.0.0", () => {
+      console.log(`🌐 Serveur HTTP actif sur le port ${PORT}`);
+    });
+
     await storage.initializeStorage();
     weeklyReports = await loadWeeklyReports();
     officerResets = await loadOfficerResets();
@@ -1517,6 +1536,9 @@ async function bootstrap() {
 async function shutdown(signal) {
   console.log(`\n🛑 Arrêt demandé (${signal})...`);
   client.destroy();
+  if (httpServer) {
+    await new Promise((resolve) => httpServer.close(resolve));
+  }
   await storage.closeStorage().catch(() => {});
   process.exit(0);
 }
