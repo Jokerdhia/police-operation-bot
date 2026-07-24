@@ -72,6 +72,7 @@ client.once(Events.ClientReady, async (readyClient) => {
   await processPendingOfficerResets(readyClient);
   startOfficerResetScheduler(readyClient);
   startWeeklyReportScheduler(readyClient);
+  startPrimeTestScheduler(readyClient);
 });
 
 client.on(Events.InteractionCreate, async (interaction) => {
@@ -931,6 +932,64 @@ async function createWeeklyReportEmbeds(guild, range) {
   }
 
   return embeds;
+}
+
+
+function startPrimeTestScheduler(clientInstance) {
+  const intervalMinutes = Number(process.env.PRIME_TEST_INTERVAL_MINUTES || 5);
+  const enabled = String(process.env.PRIME_TEST_MODE || "true").toLowerCase() === "true";
+
+  if (!enabled || !Number.isFinite(intervalMinutes) || intervalMinutes <= 0) {
+    console.log("🧪 Affichage automatique des primes désactivé.");
+    return;
+  }
+
+  const intervalMs = intervalMinutes * 60 * 1000;
+  console.log(`🧪 Mode test activé : affichage des primes toutes les ${intervalMinutes} minute(s).`);
+
+  // Premier affichage quelques secondes après le démarrage, puis à intervalle régulier.
+  setTimeout(() => publishPrimeTestReport(clientInstance), 10 * 1000);
+  setInterval(() => publishPrimeTestReport(clientInstance), intervalMs);
+}
+
+async function publishPrimeTestReport(clientInstance) {
+  for (const guild of clientInstance.guilds.cache.values()) {
+    try {
+      const channel = await getStatsChannel(guild);
+      if (!channel) {
+        console.warn(`⚠️ Salon de statistiques introuvable sur ${guild.name}.`);
+        continue;
+      }
+
+      const key = `prime-test:${guild.id}`;
+      const previousMessageIds = weeklyReports[key]?.messageIds || [];
+
+      // Supprime l'ancien affichage de test pour éviter de remplir le salon.
+      for (const messageId of previousMessageIds) {
+        const oldMessage = await channel.messages.fetch(messageId).catch(() => null);
+        if (oldMessage) await oldMessage.delete().catch(() => null);
+      }
+
+      const embeds = await createWeeklyReportEmbeds(guild, getCurrentWeekRange());
+      const messageIds = [];
+
+      for (const embed of embeds) {
+        const message = await channel.send({ embeds: [embed] });
+        messageIds.push(message.id);
+      }
+
+      weeklyReports[key] = {
+        guildId: guild.id,
+        messageIds,
+        updatedAt: Date.now(),
+      };
+      saveWeeklyReports();
+
+      console.log(`🧪 Primes actualisées sur ${guild.name} à ${new Date().toLocaleTimeString("fr-BE")}.`);
+    } catch (error) {
+      console.error(`❌ Erreur pendant l'affichage test des primes sur ${guild.name} :`, error.message);
+    }
+  }
 }
 
 function startWeeklyReportScheduler(clientInstance) {

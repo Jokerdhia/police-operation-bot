@@ -38,3 +38,8 @@ services:
         value: "15000"
       - key: MAJOR_MEMBER
         value: "12000"
+
+      - key: PRIME_TEST_MODE
+        value: true
+      - key: PRIME_TEST_INTERVAL_MINUTES
+        value: 5
