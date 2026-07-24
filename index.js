@@ -60,6 +60,60 @@ const client = new Client({
   ],
 });
 
+const guildMemberLoadPromises = new Map();
+const guildMembersLoadedAt = new Map();
+const MEMBER_CACHE_TTL_MS = 10 * 60 * 1000;
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function ensureGuildMembersLoaded(guild, { force = false } = {}) {
+  if (!guild) return false;
+
+  const lastLoadedAt = guildMembersLoadedAt.get(guild.id) || 0;
+  const cacheIsFresh = Date.now() - lastLoadedAt < MEMBER_CACHE_TTL_MS;
+  if (!force && cacheIsFresh && guild.members.cache.size > 0) return true;
+
+  if (guildMemberLoadPromises.has(guild.id)) {
+    return guildMemberLoadPromises.get(guild.id);
+  }
+
+  const loadPromise = (async () => {
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      try {
+        await guild.members.fetch();
+        guildMembersLoadedAt.set(guild.id, Date.now());
+        const policeCount = guild.members.cache.filter(
+          (member) => !member.user.bot && member.roles.cache.has(config.policeRoleId)
+        ).size;
+        console.log(
+          `✅ Membres chargés pour ${guild.name} : ${guild.members.cache.size} membre(s), ${policeCount} policier(s).`
+        );
+        return true;
+      } catch (error) {
+        const retryAfterSeconds = Number(error?.data?.retry_after || error?.retryAfter || 0);
+        const waitMs = retryAfterSeconds > 0
+          ? Math.ceil(retryAfterSeconds * 1000) + 500
+          : attempt * 1500;
+
+        console.warn(
+          `⚠️ Chargement des membres impossible sur ${guild.name} (tentative ${attempt}/3) : ${error.message}`
+        );
+
+        if (attempt < 3) await sleep(waitMs);
+      }
+    }
+
+    return false;
+  })().finally(() => {
+    guildMemberLoadPromises.delete(guild.id);
+  });
+
+  guildMemberLoadPromises.set(guild.id, loadPromise);
+  return loadPromise;
+}
+
 client.once(Events.ClientReady, async (readyClient) => {
   console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
   console.log(`✅ Bot connecté : ${readyClient.user.tag}`);
@@ -69,11 +123,23 @@ client.once(Events.ClientReady, async (readyClient) => {
 
   await displayConfigurationStatus(readyClient);
 
+  for (const guild of readyClient.guilds.cache.values()) {
+    await ensureGuildMembersLoaded(guild);
+  }
+
   readyClient.user.setActivity("les opérations de police");
   await processPendingOfficerResets(readyClient);
   startOfficerResetScheduler(readyClient);
   startWeeklyReportScheduler(readyClient);
   startPrimeTestScheduler(readyClient);
+});
+
+client.on(Events.GuildMemberAdd, (member) => {
+  guildMembersLoadedAt.set(member.guild.id, Date.now());
+});
+
+client.on(Events.GuildMemberRemove, (member) => {
+  guildMembersLoadedAt.set(member.guild.id, Date.now());
 });
 
 client.on(Events.InteractionCreate, async (interaction) => {
@@ -169,24 +235,21 @@ client.on(Events.InteractionCreate, async (interaction) => {
       if (!(await verifyLeader(interaction, operation))) return;
       if (!(await verifyPreparation(interaction, operation))) return;
 
-      // Utilise le cache local pour éviter le rate limit Gateway opcode 8.
-      // Avec l'intent GuildMembers, Discord alimente normalement ce cache au démarrage.
-      const allMembers = interaction.guild.members.cache;
-      const policeMembers = allMembers
-        .filter(
-          (member) =>
-            !member.user.bot &&
-            member.id !== operation.leaderId &&
-            member.roles.cache.has(config.policeRoleId)
-        )
-        .sort((first, second) =>
-          first.displayName.localeCompare(second.displayName, "fr", {
-            sensitivity: "base",
-          })
+      const loaded = await ensureGuildMembersLoaded(interaction.guild);
+      if (!loaded) {
+        await respondEphemeral(
+          interaction,
+          "❌ Impossible de charger la liste complète des policiers pour le moment. Réessaie dans quelques secondes."
         );
+        return;
+      }
 
+      const policeMembers = getEligiblePoliceMembers(interaction.guild, operation);
       if (policeMembers.size === 0) {
-        await respondEphemeral(interaction, "❌ Aucun autre membre avec le rôle Police n’est disponible.");
+        await respondEphemeral(
+          interaction,
+          "❌ Aucun autre membre avec le rôle Police n’est disponible. Vérifie que les membres possèdent bien ce rôle."
+        );
         return;
       }
 
@@ -232,21 +295,22 @@ client.on(Events.InteractionCreate, async (interaction) => {
       if (!(await verifyLeader(interaction, operation))) return;
       if (!(await verifyPreparation(interaction, operation))) return;
 
-      const page = Number(interaction.customId.split(":")[2] || 0);
-      const policeMembers = getEligiblePoliceMembers(interaction.guild, operation);
-      const pageMembers = [...policeMembers.values()].slice(page * 25, page * 25 + 25);
-      const pageMemberIds = new Set(pageMembers.map((member) => member.id));
+      const parts = interaction.customId.split(":");
+      const page = Number(parts[2] || 0);
+      const chunk = Number(parts[3] || 0);
+      const policeMembers = [...getEligiblePoliceMembers(interaction.guild, operation).values()];
+      const pageMembers = policeMembers.slice(page * 100, page * 100 + 100);
+      const chunkMembers = pageMembers.slice(chunk * 25, chunk * 25 + 25);
+      const chunkMemberIds = new Set(chunkMembers.map((member) => member.id));
 
       const selectedIds = new Set(
         interaction.values.filter(
-          (id) => id !== operation.leaderId && pageMemberIds.has(id)
+          (id) => id !== operation.leaderId && chunkMemberIds.has(id)
         )
       );
 
-      // Conserve les sélections faites sur les autres pages et remplace seulement
-      // celles de la page actuellement affichée.
       const preservedIds = (operation.memberIds || []).filter(
-        (id) => !pageMemberIds.has(id)
+        (id) => !chunkMemberIds.has(id)
       );
       operation.memberIds = [...new Set([...preservedIds, ...selectedIds])];
       operations.set(operation.id, operation);
@@ -1542,9 +1606,10 @@ function getEligiblePoliceMembers(guild, operation) {
 
 function createMemberSelectionView(operation, guild, requestedPage = 0) {
   const policeMembers = [...getEligiblePoliceMembers(guild, operation).values()];
-  const totalPages = Math.max(1, Math.ceil(policeMembers.length / 25));
+  const membersPerPage = 100;
+  const totalPages = Math.max(1, Math.ceil(policeMembers.length / membersPerPage));
   const page = Math.min(Math.max(Number(requestedPage) || 0, 0), totalPages - 1);
-  const pageMembers = policeMembers.slice(page * 25, page * 25 + 25);
+  const pageMembers = policeMembers.slice(page * membersPerPage, page * membersPerPage + membersPerPage);
 
   if (pageMembers.length === 0) {
     return {
@@ -1557,25 +1622,30 @@ function createMemberSelectionView(operation, guild, requestedPage = 0) {
     };
   }
 
-  const selectedOnPage = pageMembers.filter((member) =>
-    (operation.memberIds || []).includes(member.id)
-  ).length;
+  const components = [];
+  const chunkCount = Math.ceil(pageMembers.length / 25);
 
-  const memberSelect = new StringSelectMenuBuilder()
-    .setCustomId(`operation_members_select:${operation.id}:${page}`)
-    .setPlaceholder(
-      `Policiers ${page * 25 + 1}-${page * 25 + pageMembers.length} sur ${policeMembers.length}`
-    )
-    .setMinValues(0)
-    .setMaxValues(pageMembers.length)
-    .addOptions(
-      pageMembers.map((member) => ({
-        label: member.displayName.slice(0, 100),
-        value: member.id,
-        description: `ID Discord : ${member.id}`.slice(0, 100),
-        default: (operation.memberIds || []).includes(member.id),
-      }))
-    );
+  for (let chunk = 0; chunk < chunkCount; chunk += 1) {
+    const chunkMembers = pageMembers.slice(chunk * 25, chunk * 25 + 25);
+    const globalStart = page * membersPerPage + chunk * 25 + 1;
+    const globalEnd = globalStart + chunkMembers.length - 1;
+
+    const memberSelect = new StringSelectMenuBuilder()
+      .setCustomId(`operation_members_select:${operation.id}:${page}:${chunk}`)
+      .setPlaceholder(`Policiers ${globalStart}-${globalEnd} sur ${policeMembers.length}`)
+      .setMinValues(0)
+      .setMaxValues(chunkMembers.length)
+      .addOptions(
+        chunkMembers.map((member) => ({
+          label: member.displayName.slice(0, 100),
+          value: member.id,
+          description: `ID Discord : ${member.id}`.slice(0, 100),
+          default: (operation.memberIds || []).includes(member.id),
+        }))
+      );
+
+    components.push(new ActionRowBuilder().addComponents(memberSelect));
+  }
 
   const previousButton = new ButtonBuilder()
     .setCustomId(`operation_members_page:${operation.id}:${page - 1}`)
@@ -1603,30 +1673,33 @@ function createMemberSelectionView(operation, guild, requestedPage = 0) {
     .setEmoji("↩️")
     .setStyle(ButtonStyle.Danger);
 
+  const controlButtons = [];
+  if (totalPages > 1) controlButtons.push(previousButton, nextButton);
+  controlButtons.push(doneButton, cancelButton);
+  components.push(new ActionRowBuilder().addComponents(...controlButtons));
+
+  const rangeStart = page * membersPerPage + 1;
+  const rangeEnd = page * membersPerPage + pageMembers.length;
+  const pageText = totalPages > 1
+    ? `Page **${page + 1}/${totalPages}** • policiers **${rangeStart}-${rangeEnd}** sur **${policeMembers.length}**`
+    : `Tous les policiers sont affichés sur cette page : **${policeMembers.length}** disponible(s)`;
+
   return {
     embeds: [
       createOperationEmbed(operation).setDescription(
         [
           "👥 **Sélection des participants**",
           "",
-          `Page **${page + 1}/${totalPages}** • ${policeMembers.length} policier(s) disponible(s)`,
+          pageText,
           `Sélectionnés au total : **${(operation.memberIds || []).length}**`,
-          `Sélectionnés sur cette page : **${selectedOnPage}**`,
           "",
-          "Sélectionne les policiers, change de page si nécessaire, puis clique sur **Terminer**.",
+          "Tu peux sélectionner des policiers dans chacun des menus ci-dessous.",
+          "Clique ensuite sur **Terminer** pour enregistrer la liste complète.",
           "Le chef d’opération est retiré automatiquement.",
         ].join("\n")
       ),
     ],
-    components: [
-      new ActionRowBuilder().addComponents(memberSelect),
-      new ActionRowBuilder().addComponents(
-        previousButton,
-        nextButton,
-        doneButton,
-        cancelButton
-      ),
-    ],
+    components,
   };
 }
 
