@@ -689,7 +689,7 @@ async function handlePrimeCommand(interaction) {
         inline: false,
       }
     )
-    .setFooter({ text: "Seules les opérations validées sont comptabilisées." })
+    .setFooter({ text: footerText })
     .setTimestamp();
 
   await interaction.reply({ embeds: [embed], flags: MessageFlags.Ephemeral });
@@ -855,8 +855,12 @@ function getPreviousWeekRange(reference = new Date()) {
   return { start, end };
 }
 
-async function createWeeklyReportEmbeds(guild, range) {
+async function createWeeklyReportEmbeds(guild, range, options = {}) {
   const guildId = guild.id;
+  const reportTitle = options.title || "📊 Rapport hebdomadaire de la police";
+  const rankingTitle = options.rankingTitle || "🏆 Classement hebdomadaire";
+  const periodLabel = options.periodLabel || `Période : <t:${Math.floor(range.start.getTime() / 1000)}:d> au <t:${Math.floor(range.end.getTime() / 1000)}:d>`;
+  const footerText = options.footerText || "Seules les opérations validées sont comptabilisées.";
   const activePoliceIds = await getActivePoliceUserIds(guild);
   const ranking = calculateWeeklyRanking(guildId, range, activePoliceIds);
   const approvedOperations = [...operations.values()].filter((operation) => {
@@ -886,8 +890,8 @@ async function createWeeklyReportEmbeds(guild, range) {
 
   const summary = new EmbedBuilder()
     .setColor(0x5865f2)
-    .setTitle("📊 Rapport hebdomadaire de la police")
-    .setDescription(`Période : <t:${startTimestamp}:d> au <t:${endTimestamp}:d>`)
+    .setTitle(reportTitle)
+    .setDescription(periodLabel)
     .addFields(
       { name: "🚨 Opérations validées", value: `**${approvedOperations.length}**`, inline: true },
       { name: "💵 Primes totales", value: `**${formatMoney(totalBonuses)} €**`, inline: true },
@@ -901,7 +905,7 @@ async function createWeeklyReportEmbeds(guild, range) {
         ].join("\n"),
       }
     )
-    .setFooter({ text: "Seules les opérations validées sont comptabilisées." })
+    .setFooter({ text: footerText })
     .setTimestamp();
   embeds.push(summary);
 
@@ -909,7 +913,7 @@ async function createWeeklyReportEmbeds(guild, range) {
     embeds.push(
       new EmbedBuilder()
         .setColor(0x2b2d31)
-        .setTitle("🏆 Classement hebdomadaire")
+        .setTitle(rankingTitle)
         .setDescription("Aucune opération validée pendant cette période.")
     );
     return embeds;
@@ -929,7 +933,7 @@ async function createWeeklyReportEmbeds(guild, range) {
     embeds.push(
       new EmbedBuilder()
         .setColor(0xfee75c)
-        .setTitle(`🏆 Classement hebdomadaire — page ${Math.floor(pageStart / 10) + 1}`)
+        .setTitle(`${rankingTitle} — page ${Math.floor(pageStart / 10) + 1}`)
         .setDescription(lines.join("\n\n"))
     );
   }
@@ -963,7 +967,10 @@ function isPrimeReportMessage(message, botUserId) {
   return message.embeds.some((embed) => {
     const title = embed.title || "";
     return title.startsWith("💼 Résumé hebdomadaire") ||
-      title.startsWith("🏆 Classement hebdomadaire");
+      title.startsWith("📊 Rapport hebdomadaire") ||
+      title.startsWith("🧪 Primes — période de test") ||
+      title.startsWith("🏆 Classement hebdomadaire") ||
+      title.startsWith("🏆 Classement — période de test");
   });
 }
 
@@ -1023,7 +1030,29 @@ async function publishPrimeTestReport(clientInstance) {
         previousMessageIds
       );
 
-      const embeds = await createWeeklyReportEmbeds(guild, getCurrentWeekRange());
+      const intervalMinutes = Number(process.env.PRIME_TEST_INTERVAL_MINUTES || 5);
+      const intervalMs = intervalMinutes * 60 * 1000;
+      const now = Date.now();
+
+      // Chaque rapport couvre une nouvelle période, sans reprendre les primes
+      // déjà affichées lors du passage précédent.
+      const savedPeriodEnd = Number(weeklyReports[key]?.periodEndAt);
+      const periodStartAt = Number.isFinite(savedPeriodEnd) && savedPeriodEnd > 0 && savedPeriodEnd < now
+        ? savedPeriodEnd + 1
+        : now - intervalMs;
+      const range = {
+        start: new Date(periodStartAt),
+        end: new Date(now),
+      };
+
+      const startTimestamp = Math.floor(range.start.getTime() / 1000);
+      const endTimestamp = Math.floor(range.end.getTime() / 1000);
+      const embeds = await createWeeklyReportEmbeds(guild, range, {
+        title: `🧪 Primes — période de test (${intervalMinutes} min)`,
+        rankingTitle: "🏆 Classement — période de test",
+        periodLabel: `Opérations validées entre <t:${startTimestamp}:T> et <t:${endTimestamp}:T>`,
+        footerText: "Ce rapport ne reprend pas les primes déjà affichées lors de la période précédente.",
+      });
       const messageIds = [];
 
       for (const embed of embeds) {
@@ -1034,7 +1063,9 @@ async function publishPrimeTestReport(clientInstance) {
       weeklyReports[key] = {
         guildId: guild.id,
         messageIds,
-        updatedAt: Date.now(),
+        periodStartAt,
+        periodEndAt: now,
+        updatedAt: now,
       };
       await saveWeeklyReports();
 
