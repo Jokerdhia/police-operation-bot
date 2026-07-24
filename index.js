@@ -13,6 +13,7 @@ const {
   Events,
   GatewayIntentBits,
   PermissionFlagsBits,
+  MessageFlags,
   StringSelectMenuBuilder,
 } = require("discord.js");
 
@@ -168,7 +169,9 @@ client.on(Events.InteractionCreate, async (interaction) => {
       if (!(await verifyLeader(interaction, operation))) return;
       if (!(await verifyPreparation(interaction, operation))) return;
 
-      const allMembers = await interaction.guild.members.fetch();
+      // Utilise le cache local pour éviter le rate limit Gateway opcode 8.
+      // Avec l'intent GuildMembers, Discord alimente normalement ce cache au démarrage.
+      const allMembers = interaction.guild.members.cache;
       const policeMembers = allMembers
         .filter(
           (member) =>
@@ -401,7 +404,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
       await interaction.followUp({
         content: "✅ Rapport soumis. Les responsables de validation ont été prévenus.",
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       });
       return;
     }
@@ -462,7 +465,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
     console.error("❌ Erreur pendant une interaction :", error);
     const response = {
       content: "❌ Une erreur est survenue pendant l’utilisation du bot.",
-      ephemeral: true,
+      flags: MessageFlags.Ephemeral,
     };
 
     if (interaction.replied || interaction.deferred) {
@@ -609,7 +612,7 @@ async function handleOperationCommand(interaction) {
   if (!(await hasPoliceRole(interaction.guild, interaction.user.id))) {
     await interaction.reply({
       content: "❌ Tu dois avoir le rôle Police pour créer une opération.",
-      ephemeral: true,
+      flags: MessageFlags.Ephemeral,
     });
     return;
   }
@@ -630,7 +633,7 @@ async function handleOperationCommand(interaction) {
     )
     .setFooter({ text: "Tu deviendras automatiquement le chef de l’opération." });
 
-  await interaction.reply({ embeds: [embed], components: [createOperationTypeSelect()], ephemeral: true });
+  await interaction.reply({ embeds: [embed], components: [createOperationTypeSelect()], flags: MessageFlags.Ephemeral });
 }
 
 async function handlePrimeCommand(interaction) {
@@ -639,7 +642,7 @@ async function handlePrimeCommand(interaction) {
   if (requestedUser.id !== interaction.user.id && !(await isSupervisor(interaction))) {
     await interaction.reply({
       content: "❌ Seuls les superviseurs peuvent consulter la prime d’un autre policier.",
-      ephemeral: true,
+      flags: MessageFlags.Ephemeral,
     });
     return;
   }
@@ -647,7 +650,7 @@ async function handlePrimeCommand(interaction) {
   if (!(await hasPoliceRole(interaction.guild, requestedUser.id))) {
     await interaction.reply({
       content: "❌ Ce membre n’a pas le rôle Police. Son historique n’est pas affiché.",
-      ephemeral: true,
+      flags: MessageFlags.Ephemeral,
     });
     return;
   }
@@ -689,7 +692,7 @@ async function handlePrimeCommand(interaction) {
     .setFooter({ text: "Seules les opérations validées sont comptabilisées." })
     .setTimestamp();
 
-  await interaction.reply({ embeds: [embed], ephemeral: true });
+  await interaction.reply({ embeds: [embed], flags: MessageFlags.Ephemeral });
 }
 
 async function handleRankingCommand(interaction) {
@@ -723,7 +726,7 @@ async function handleWeeklyReportCommand(interaction) {
     await interaction.reply({
       content:
         "❌ Seuls les **Operations Controller** ou le **Chief of Police** peuvent publier un rapport hebdomadaire.",
-      ephemeral: true,
+      flags: MessageFlags.Ephemeral,
     });
     return;
   }
@@ -736,12 +739,12 @@ async function handleWeeklyReportCommand(interaction) {
   if (!targetChannel) {
     await interaction.reply({
       content: "❌ Le salon statistiques est introuvable. Vérifie STATS_CHANNEL_ID dans ton fichier .env.",
-      ephemeral: true,
+      flags: MessageFlags.Ephemeral,
     });
     return;
   }
 
-  await interaction.deferReply({ ephemeral: true });
+  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
   const messageIds = [];
   for (const embed of embeds) {
     const message = await targetChannel.send({ embeds: [embed] });
@@ -952,8 +955,59 @@ function startPrimeTestScheduler(clientInstance) {
   setInterval(() => publishPrimeTestReport(clientInstance), intervalMs);
 }
 
+const primeTestLocks = new Set();
+
+function isPrimeReportMessage(message, botUserId) {
+  if (!message || message.author?.id !== botUserId) return false;
+
+  return message.embeds.some((embed) => {
+    const title = embed.title || "";
+    return title.startsWith("💼 Résumé hebdomadaire") ||
+      title.startsWith("🏆 Classement hebdomadaire");
+  });
+}
+
+async function deletePreviousPrimeReports(channel, botUserId, savedMessageIds = []) {
+  const deletedIds = new Set();
+
+  // Suppression prioritaire avec les identifiants sauvegardés dans Neon/JSON.
+  for (const messageId of savedMessageIds) {
+    const oldMessage = await channel.messages.fetch(messageId).catch(() => null);
+    if (!oldMessage) continue;
+
+    await oldMessage.delete().catch((error) => {
+      console.warn(`⚠️ Impossible de supprimer l'ancien rapport ${messageId} : ${error.message}`);
+    });
+    deletedIds.add(messageId);
+  }
+
+  // Sécurité supplémentaire après un redémarrage ou une sauvegarde manquante :
+  // recherche les anciens rapports du bot dans les 100 derniers messages.
+  const recentMessages = await channel.messages.fetch({ limit: 100 }).catch(() => null);
+  if (!recentMessages) return deletedIds.size;
+
+  for (const message of recentMessages.values()) {
+    if (deletedIds.has(message.id) || !isPrimeReportMessage(message, botUserId)) continue;
+
+    await message.delete().catch((error) => {
+      console.warn(`⚠️ Impossible de supprimer l'ancien rapport ${message.id} : ${error.message}`);
+    });
+    deletedIds.add(message.id);
+  }
+
+  return deletedIds.size;
+}
+
 async function publishPrimeTestReport(clientInstance) {
   for (const guild of clientInstance.guilds.cache.values()) {
+    const lockKey = guild.id;
+    if (primeTestLocks.has(lockKey)) {
+      console.warn(`⚠️ Actualisation des primes déjà en cours sur ${guild.name}.`);
+      continue;
+    }
+
+    primeTestLocks.add(lockKey);
+
     try {
       const channel = await getStatsChannel(guild);
       if (!channel) {
@@ -963,12 +1017,11 @@ async function publishPrimeTestReport(clientInstance) {
 
       const key = `prime-test:${guild.id}`;
       const previousMessageIds = weeklyReports[key]?.messageIds || [];
-
-      // Supprime l'ancien affichage de test pour éviter de remplir le salon.
-      for (const messageId of previousMessageIds) {
-        const oldMessage = await channel.messages.fetch(messageId).catch(() => null);
-        if (oldMessage) await oldMessage.delete().catch(() => null);
-      }
+      const deletedCount = await deletePreviousPrimeReports(
+        channel,
+        clientInstance.user.id,
+        previousMessageIds
+      );
 
       const embeds = await createWeeklyReportEmbeds(guild, getCurrentWeekRange());
       const messageIds = [];
@@ -983,11 +1036,16 @@ async function publishPrimeTestReport(clientInstance) {
         messageIds,
         updatedAt: Date.now(),
       };
-      saveWeeklyReports();
+      await saveWeeklyReports();
 
-      console.log(`🧪 Primes actualisées sur ${guild.name} à ${new Date().toLocaleTimeString("fr-BE")}.`);
+      console.log(
+        `🧪 Primes actualisées sur ${guild.name} à ${new Date().toLocaleTimeString("fr-BE")} ` +
+        `(${deletedCount} ancien(s) message(s) supprimé(s)).`
+      );
     } catch (error) {
       console.error(`❌ Erreur pendant l'affichage test des primes sur ${guild.name} :`, error.message);
+    } finally {
+      primeTestLocks.delete(lockKey);
     }
   }
 }
@@ -1191,7 +1249,8 @@ async function hasPoliceRole(guild, userId) {
 
 async function getActivePoliceUserIds(guild) {
   if (!guild || !isConfiguredId(config.policeRoleId)) return new Set();
-  const members = await guild.members.fetch();
+  // Évite une récupération globale des membres, fortement limitée par Discord.
+  const members = guild.members.cache;
   return new Set(
     members
       .filter((member) => !member.user.bot && member.roles.cache.has(config.policeRoleId))
@@ -1205,7 +1264,7 @@ async function loadWeeklyReports() {
 }
 
 function saveWeeklyReports() {
-  storage.saveState("weekly_reports", weeklyReports, REPORTS_FILE);
+  return storage.saveState("weekly_reports", weeklyReports, REPORTS_FILE);
 }
 
 function getWeeklyReportKey(guildId, range) {
@@ -1242,7 +1301,7 @@ function saveOperations() {
 }
 
 async function respondEphemeral(interaction, content) {
-  const payload = { content, ephemeral: true };
+  const payload = { content, flags: MessageFlags.Ephemeral };
   if (interaction.deferred || interaction.replied) {
     return interaction.followUp(payload).catch(() => null);
   }
