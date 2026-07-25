@@ -48,3 +48,7 @@ Tu peux le faire localement avec les variables Discord nécessaires, puis lancer
 
 - Sur Render avec `DATABASE_URL`, les opérations, rapports hebdomadaires et remises à zéro sont enregistrés dans Neon.
 - En local sans `DATABASE_URL`, le bot continue d'utiliser les fichiers JSON du dossier `data`.
+
+
+## Salon de logs
+Ajoute la variable `LOGS_CHANNEL_ID` dans Render avec l’ID du salon Discord où chaque rapport de primes doit être archivé. Le bot doit avoir les permissions **Voir le salon**, **Envoyer des messages** et **Intégrer des liens** dans ce salon.

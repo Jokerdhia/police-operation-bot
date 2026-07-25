@@ -18,6 +18,8 @@ services:
         sync: false
       - key: STATS_CHANNEL_ID
         sync: false
+      - key: LOGS_CHANNEL_ID
+        sync: false
       - key: SUPERVISOR_ROLE_ID
         sync: false
       - key: CHIEF_ROLE_ID
@@ -40,6 +42,4 @@ services:
         value: "12000"
 
       - key: PRIME_TEST_MODE
-        value: true
-      - key: PRIME_TEST_INTERVAL_MINUTES
-        value: 5
+        value: false

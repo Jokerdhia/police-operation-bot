@@ -131,7 +131,6 @@ client.once(Events.ClientReady, async (readyClient) => {
   await processPendingOfficerResets(readyClient);
   startOfficerResetScheduler(readyClient);
   startWeeklyReportScheduler(readyClient);
-  startPrimeTestScheduler(readyClient);
 });
 
 client.on(Events.GuildMemberAdd, (member) => {
@@ -818,8 +817,17 @@ async function handleWeeklyReportCommand(interaction) {
     messageIds.push(message.id);
   }
 
+  const logsChannel = await getLogsChannel(interaction.guild);
+  if (logsChannel && logsChannel.id !== targetChannel.id) {
+    await sendReportCopyToLogs(logsChannel, embeds, "Publication manuelle du rapport hebdomadaire");
+  }
+
   archiveWeeklyReport(interaction.guildId, range, messageIds, interaction.user.id, false);
-  await interaction.editReply(`✅ Rapport publié dans <#${targetChannel.id}>.`);
+  await interaction.editReply(
+    logsChannel && logsChannel.id !== targetChannel.id
+      ? `✅ Rapport publié dans <#${targetChannel.id}> et copié dans <#${logsChannel.id}>.`
+      : `✅ Rapport publié dans <#${targetChannel.id}>.`
+  );
 }
 
 function calculateWeeklyStatsForUser(userId, guildId, range = getCurrentWeekRange()) {
@@ -1011,7 +1019,7 @@ async function createWeeklyReportEmbeds(guild, range, options = {}) {
 
 function startPrimeTestScheduler(clientInstance) {
   const intervalMinutes = Number(process.env.PRIME_TEST_INTERVAL_MINUTES || 5);
-  const enabled = String(process.env.PRIME_TEST_MODE || "true").toLowerCase() === "true";
+  const enabled = String(process.env.PRIME_TEST_MODE || "false").toLowerCase() === "true";
 
   if (!enabled || !Number.isFinite(intervalMinutes) || intervalMinutes <= 0) {
     console.log("🧪 Affichage automatique des primes désactivé.");
@@ -1127,6 +1135,11 @@ async function publishPrimeTestReport(clientInstance) {
         messageIds.push(message.id);
       }
 
+      const logsChannel = await getLogsChannel(guild);
+      if (logsChannel && logsChannel.id !== channel.id) {
+        await sendReportCopyToLogs(logsChannel, embeds, "Mise à jour automatique des primes");
+      }
+
       weeklyReports[key] = {
         guildId: guild.id,
         messageIds,
@@ -1205,6 +1218,11 @@ async function processWeeklyRollover(clientInstance) {
 
             const embeds = await createWeeklyReportEmbeds(guild, previousRange);
 
+            const logsChannel = await getLogsChannel(guild);
+            if (logsChannel && logsChannel.id !== channel.id) {
+              await sendReportCopyToLogs(logsChannel, embeds, "Clôture automatique de la semaine");
+            }
+
             // Le premier embed est toujours le résumé : on le conserve définitivement.
             if (embeds[0]) {
               const summaryMessage = await channel.send({ embeds: [embeds[0]] });
@@ -1266,6 +1284,26 @@ async function getStatsChannel(guild) {
   if (!isConfiguredId(config.statsChannelId)) return null;
   const channel = await guild.channels.fetch(config.statsChannelId).catch(() => null);
   return channel?.isTextBased() ? channel : null;
+}
+
+async function getLogsChannel(guild) {
+  if (!isConfiguredId(config.logsChannelId)) return null;
+  const channel = await guild.channels.fetch(config.logsChannelId).catch(() => null);
+  return channel?.isTextBased() ? channel : null;
+}
+
+async function sendReportCopyToLogs(logsChannel, embeds, reason) {
+  try {
+    await logsChannel.send({
+      content: `🗂️ **${reason}** • <t:${Math.floor(Date.now() / 1000)}:F>`,
+    });
+
+    for (const embed of embeds) {
+      await logsChannel.send({ embeds: [embed] });
+    }
+  } catch (error) {
+    console.error(`❌ Impossible d’envoyer le rapport dans les logs : ${error.message}`);
+  }
 }
 
 function officerResetKey(guildId, userId) {
@@ -1552,6 +1590,9 @@ async function displayConfigurationStatus(readyClient) {
     const statsChannel = isConfiguredId(config.statsChannelId)
       ? guild.channels.cache.get(config.statsChannelId)
       : null;
+    const logsChannel = isConfiguredId(config.logsChannelId)
+      ? guild.channels.cache.get(config.logsChannelId)
+      : null;
 
     if (controllerRole) {
       console.log(`✅ Operations Controller : ${controllerRole.name} (${controllerRole.id})`);
@@ -1582,6 +1623,14 @@ async function displayConfigurationStatus(readyClient) {
         console.log(`✅ Salon statistiques : #${statsChannel.name} (${statsChannel.id})`);
       } else {
         console.error(`❌ Salon statistiques introuvable avec l’ID : ${config.statsChannelId}`);
+      }
+    }
+
+    if (isConfiguredId(config.logsChannelId)) {
+      if (logsChannel) {
+        console.log(`✅ Salon logs : #${logsChannel.name} (${logsChannel.id})`);
+      } else {
+        console.error(`❌ Salon logs introuvable avec l’ID : ${config.logsChannelId}`);
       }
     }
   }

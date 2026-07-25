@@ -30,6 +30,7 @@ const operationTypes = {
 module.exports = {
   operationsChannelId: process.env.OPERATIONS_CHANNEL_ID || "",
   statsChannelId: process.env.STATS_CHANNEL_ID || "",
+  logsChannelId: process.env.LOGS_CHANNEL_ID || "",
   reportTimezone: process.env.REPORT_TIMEZONE || "Europe/Brussels",
   supervisorRoleId: process.env.SUPERVISOR_ROLE_ID || "",
   policeRoleId: process.env.POLICE_ROLE_ID || "",
