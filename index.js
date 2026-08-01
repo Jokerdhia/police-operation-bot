@@ -14,7 +14,10 @@ const {
   GatewayIntentBits,
   PermissionFlagsBits,
   MessageFlags,
+  ModalBuilder,
   StringSelectMenuBuilder,
+  TextInputBuilder,
+  TextInputStyle,
 } = require("discord.js");
 
 const config = require("./config");
@@ -131,6 +134,9 @@ client.once(Events.ClientReady, async (readyClient) => {
   await processPendingOfficerResets(readyClient);
   startOfficerResetScheduler(readyClient);
   startWeeklyReportScheduler(readyClient);
+  for (const operation of operations.values()) {
+    if (operation.status === "preparation") scheduleAbandonedOperationCleanup(operation.id);
+  }
 });
 
 client.on(Events.GuildMemberAdd, (member) => {
@@ -151,9 +157,46 @@ client.on(Events.InteractionCreate, async (interaction) => {
       `[INTERACTION] ${interaction.user.tag} (${interaction.user.id}) -> ${interactionName}`
     );
 
+    // Le refus passe obligatoirement par un formulaire avec motif.
+    if (interaction.isModalSubmit() && interaction.customId.startsWith("operation_reject_modal:")) {
+      const operationId = interaction.customId.split(":")[1];
+      const operation = operations.get(operationId);
+      if (!(await verifySupervisor(interaction, operation))) return;
+
+      if (!operation || operation.status !== "pending") {
+        await respondEphemeral(interaction, "❌ Ce rapport est introuvable ou a déjà été traité.");
+        return;
+      }
+
+      const reason = interaction.fields.getTextInputValue("reject_reason").trim();
+      if (!reason) {
+        await respondEphemeral(interaction, "❌ Le motif du refus est obligatoire.");
+        return;
+      }
+
+      operation.status = "rejected";
+      operation.reviewedBy = interaction.user.id;
+      operation.reviewedAt = Date.now();
+      operation.rejectionReason = reason;
+      operations.set(operation.id, operation);
+      saveOperations();
+
+      const channelId = operation.reviewChannelId || operation.reportChannelId;
+      const messageId = operation.reviewMessageId || operation.reportMessageId;
+      const channel = await interaction.guild.channels.fetch(channelId).catch(() => null);
+      const message = channel?.isTextBased() ? await channel.messages.fetch(messageId).catch(() => null) : null;
+      if (message) {
+        await message.edit({ embeds: [createOperationEmbed(operation)], components: [] }).catch(() => {});
+      }
+
+      await notifyLeader(interaction.guild, operation, false);
+      await respondEphemeral(interaction, `❌ Rapport **${operation.id}** refusé. Motif : **${reason}**`);
+      return;
+    }
+
     // Discord exige une première réponse en moins de 3 secondes.
     // On confirme immédiatement tous les boutons et menus, puis on modifie le message.
-    if (interaction.isMessageComponent() && !interaction.deferred && !interaction.replied) {
+    if (interaction.isMessageComponent() && !interaction.deferred && !interaction.replied && !interaction.customId?.startsWith("operation_reject:")) {
       await interaction.deferUpdate();
     }
     if (interaction.isChatInputCommand()) {
@@ -223,6 +266,8 @@ client.on(Events.InteractionCreate, async (interaction) => {
         embeds: [],
         components: [],
       });
+      scheduleEphemeralDelete(interaction);
+      scheduleAbandonedOperationCleanup(operation.id);
       return;
     }
 
@@ -468,10 +513,11 @@ client.on(Events.InteractionCreate, async (interaction) => {
         }
       }
 
-      await interaction.followUp({
+      const submittedNotice = await interaction.followUp({
         content: "✅ Rapport soumis. Les responsables de validation ont été prévenus.",
         flags: MessageFlags.Ephemeral,
       });
+      scheduleMessageDelete(submittedNotice);
       return;
     }
 
@@ -514,19 +560,24 @@ client.on(Events.InteractionCreate, async (interaction) => {
         return;
       }
 
-      operation.status = "rejected";
-      operation.reviewedBy = interaction.user.id;
-      operation.reviewedAt = Date.now();
-      operations.set(operation.id, operation);
-      saveOperations();
+      const modal = new ModalBuilder()
+        .setCustomId(`operation_reject_modal:${operation.id}`)
+        .setTitle(`Refuser ${operation.id}`);
 
-      await interaction.editReply({
-        content: null,
-        embeds: [createOperationEmbed(operation)],
-        components: [],
-      });
-      await notifyLeader(interaction.guild, operation, false);
+      const reasonInput = new TextInputBuilder()
+        .setCustomId("reject_reason")
+        .setLabel("Motif du refus")
+        .setPlaceholder("Écris obligatoirement le motif du refus...")
+        .setStyle(TextInputStyle.Paragraph)
+        .setRequired(true)
+        .setMinLength(2)
+        .setMaxLength(800);
+
+      modal.addComponents(new ActionRowBuilder().addComponents(reasonInput));
+      await interaction.showModal(modal);
+      return;
     }
+
   } catch (error) {
     console.error("❌ Erreur pendant une interaction :", error);
     const response = {
@@ -1436,12 +1487,54 @@ function saveOperations() {
   storage.saveState("operations", [...operations.values()], DATA_FILE);
 }
 
+const TEMP_MESSAGE_TTL_MS = 30 * 1000;
+const ABANDONED_REPORT_TTL_MS = 5 * 60 * 1000;
+
+function scheduleMessageDelete(message, delay = TEMP_MESSAGE_TTL_MS) {
+  if (!message?.delete) return;
+  setTimeout(() => message.delete().catch(() => {}), delay);
+}
+
+function scheduleEphemeralDelete(interaction, delay = TEMP_MESSAGE_TTL_MS) {
+  setTimeout(() => interaction.deleteReply().catch(() => {}), delay);
+}
+
 async function respondEphemeral(interaction, content) {
   const payload = { content, flags: MessageFlags.Ephemeral };
   if (interaction.deferred || interaction.replied) {
-    return interaction.followUp(payload).catch(() => null);
+    const message = await interaction.followUp(payload).catch(() => null);
+    scheduleMessageDelete(message);
+    return message;
   }
-  return interaction.reply(payload).catch(() => null);
+  const result = await interaction.reply(payload).catch(() => null);
+  if (result) scheduleEphemeralDelete(interaction);
+  return result;
+}
+
+function scheduleAbandonedOperationCleanup(operationId) {
+  const operation = operations.get(operationId);
+  if (!operation || operation.status !== "preparation") return;
+  const remaining = Math.max(1000, ABANDONED_REPORT_TTL_MS - (Date.now() - operation.createdAt));
+  setTimeout(() => cleanupAbandonedOperation(operationId), remaining);
+}
+
+async function cleanupAbandonedOperation(operationId) {
+  const operation = operations.get(operationId);
+  if (!operation || operation.status !== "preparation") return;
+  if (Date.now() - operation.createdAt < ABANDONED_REPORT_TTL_MS) {
+    scheduleAbandonedOperationCleanup(operationId);
+    return;
+  }
+  const guild = client.guilds.cache.get(operation.guildId);
+  const channel = guild ? await guild.channels.fetch(operation.reportChannelId).catch(() => null) : null;
+  if (channel?.isTextBased() && operation.reportMessageId) {
+    const message = await channel.messages.fetch(operation.reportMessageId).catch(() => null);
+    if (message) await message.delete().catch(() => {});
+  }
+  pendingProofs.delete(`${operation.guildId}:${operation.reportChannelId}:${operation.leaderId}`);
+  operations.delete(operationId);
+  saveOperations();
+  console.log(`🧹 Rapport abandonné ${operationId} supprimé automatiquement après 5 minutes.`);
 }
 
 function getOperationFromInteraction(interaction) {
@@ -1781,7 +1874,13 @@ function createOperationEmbed(operation) {
       { name: "💰 Prime par membre", value: `${formatMoney(category.memberBonus)} €`, inline: true },
       { name: "💵 Total de l’opération", value: `${formatMoney(total)} €` },
       { name: "📌 Statut", value: getStatusText(operation) }
-    )
+    );
+
+  if (operation.status === "rejected" && operation.rejectionReason) {
+    embed.addFields({ name: "📝 Motif du refus", value: operation.rejectionReason.slice(0, 1024) });
+  }
+
+  embed
     .setFooter({ text: operation.status === "preparation" ? "Seul le chef peut modifier ce rapport." : `Rapport ${operation.id}` })
     .setTimestamp(operation.createdAt);
 
@@ -1839,7 +1938,7 @@ async function notifyLeader(guild, operation, approved) {
   if (!member) return;
   const text = approved
     ? `✅ Ton rapport **${operation.id}** a été validé. La prime est comptabilisée.`
-    : `❌ Ton rapport **${operation.id}** a été refusé.`;
+    : `❌ Ton rapport **${operation.id}** a été refusé.\n📝 Motif : ${operation.rejectionReason || "Non précisé"}`;
   await member.send(text).catch(() => {});
 }
 
