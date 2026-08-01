@@ -14,37 +14,41 @@ if (!TOKEN || !CLIENT_ID || !GUILD_ID) {
 const commands = [
   new SlashCommandBuilder()
     .setName("operation")
-    .setDescription("إنشاء تقرير جديد لعملية شرطة"),
+    .setDescription("Créer un nouveau rapport d’opération de police"),
 
   new SlashCommandBuilder()
     .setName("prime")
-    .setDescription("عرض مكافأتك الأسبوعية أو مكافأة شرطي آخر")
+    .setDescription("Afficher votre prime hebdomadaire ou celle d’un autre policier")
     .addUserOption((option) =>
       option
         .setName("policier")
-        .setDescription("اختر الشرطي — اتركه فارغاً لعرض مكافأتك")
+        .setDescription("Choisir le policier — laisser vide pour afficher votre prime")
         .setRequired(false)
     ),
 
   new SlashCommandBuilder()
     .setName("classement")
-    .setDescription("عرض أفضل 10 أفراد شرطة أسبوعياً"),
+    .setDescription("Afficher le classement hebdomadaire des policiers"),
 
   new SlashCommandBuilder()
     .setName("controleurs")
-    .setDescription("عرض الإحصائيات الأسبوعية للمراجعين"),
+    .setDescription("Afficher les statistiques hebdomadaires des contrôleurs"),
+
+  new SlashCommandBuilder()
+    .setName("revision")
+    .setDescription("Ouvrir le centre de contrôle des rapports en attente"),
 
   new SlashCommandBuilder()
     .setName("rapport-semaine")
-    .setDescription("نشر التقرير الأسبوعي للعمليات")
+    .setDescription("Publier le rapport hebdomadaire des opérations")
     .addStringOption((option) =>
       option
         .setName("periode")
-        .setDescription("اختر الأسبوع المراد عرضه")
+        .setDescription("Choisir la semaine à afficher")
         .setRequired(false)
         .addChoices(
-          { name: "الأسبوع الحالي", value: "current" },
-          { name: "الأسبوع السابق", value: "previous" }
+          { name: "Semaine actuelle", value: "current" },
+          { name: "Semaine précédente", value: "previous" }
         )
     ),
 ].map((command) => command.toJSON());
@@ -53,7 +57,7 @@ const rest = new REST({ version: "10" }).setToken(TOKEN);
 
 async function deployCommands() {
   try {
-    console.log("⏳ Installation des commandes /operation, /prime, /classement, /controleurs et /rapport-semaine...");
+    console.log("⏳ Installation des commandes /operation, /prime, /classement, /controleurs, /revision et /rapport-semaine...");
 
     await rest.put(Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID), {
       body: commands,

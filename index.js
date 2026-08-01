@@ -269,6 +269,11 @@ client.on(Events.InteractionCreate, async (interaction) => {
         await handleControllerStatsCommand(interaction);
         return;
       }
+
+      if (interaction.commandName === "revision") {
+        await handleRevisionCenterCommand(interaction);
+        return;
+      }
     }
 
     if (
@@ -534,6 +539,13 @@ client.on(Events.InteractionCreate, async (interaction) => {
       operation.duplicateMembersPercent = duplicateSignals.members?.percent || null;
       // Compatibilité avec les anciennes versions du bot.
       operation.duplicateOf = operation.duplicateProofOf || operation.duplicateMembersOf || null;
+      const farmSignals = findAntiFarmSignals(operation);
+      operation.antiFarmCount = farmSignals.count;
+      operation.antiFarmOperationIds = farmSignals.operationIds;
+      const suspicion = calculateSuspicion(operation);
+      operation.suspicionScore = suspicion.score;
+      operation.suspicionLevel = suspicion.level;
+      operation.suspicionReasons = suspicion.reasons;
       operation.status = "pending";
       operation.submittedAt = Date.now();
       operation.resubmittedAt = operation.correctionReason ? Date.now() : operation.resubmittedAt || null;
@@ -588,6 +600,23 @@ client.on(Events.InteractionCreate, async (interaction) => {
           interaction.webhook.deleteMessage(submittedMessage.id).catch(() => {});
         }, TEMP_MESSAGE_TTL_MS);
       }
+      return;
+    }
+
+    if (
+      interaction.isButton() &&
+      interaction.customId.startsWith("operation_check:")
+    ) {
+      const operation = getOperationFromInteraction(interaction);
+      if (!(await verifySupervisor(interaction, operation))) return;
+
+      if (!operation || operation.status !== "pending") {
+        await respondEphemeral(interaction, "❌ هذا التقرير غير موجود أو تمت معالجته بالفعل.");
+        return;
+      }
+
+      const audit = buildOperationAudit(operation);
+      await respondEphemeral(interaction, audit);
       return;
     }
 
@@ -1746,6 +1775,15 @@ async function verifySupervisor(interaction, operation = null) {
     return false;
   }
 
+  if (operation && (operation.leaderId === interaction.user.id || (operation.memberIds || []).includes(interaction.user.id))) {
+    console.log("Résultat : REFUSÉ — auto-validation interdite.");
+    await respondEphemeral(
+      interaction,
+      "🚫 لا يمكنك مراجعة أو قبول أو رفض تقرير عملية كنت قائداً أو مشاركاً فيها."
+    );
+    return false;
+  }
+
   console.log(
     `Résultat : AUTORISÉ — ${isChief ? "Chief of Police" : "Operations Controller"} détecté.`
   );
@@ -1997,6 +2035,14 @@ function createOperationEmbed(operation) {
     });
   }
 
+  if (["pending", "approved", "rejected", "correction"].includes(operation.status) && Number.isFinite(Number(operation.suspicionScore))) {
+    embed.addFields({
+      name: "🛡️ تقييم المخاطر",
+      value: `${getSuspicionEmoji(operation.suspicionLevel)} **${getSuspicionLabel(operation.suspicionLevel)}** — ${Number(operation.suspicionScore)}/100`,
+      inline: true,
+    });
+  }
+
   embed
     .setFooter({ text: operation.status === "preparation" ? "قائد العملية فقط يمكنه تعديل هذا التقرير." : `التقرير ${operation.id}` })
     .setTimestamp(operation.createdAt);
@@ -2037,6 +2083,7 @@ function createOperationButtons(operationId) {
 
 function createReviewButtons(operationId) {
   return new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId(`operation_check:${operationId}`).setLabel("فحص").setEmoji("🔎").setStyle(ButtonStyle.Primary),
     new ButtonBuilder().setCustomId(`operation_approve:${operationId}`).setLabel("قبول").setEmoji("✅").setStyle(ButtonStyle.Success),
     new ButtonBuilder().setCustomId(`operation_correction:${operationId}`).setLabel("تصحيح").setEmoji("🟠").setStyle(ButtonStyle.Secondary),
     new ButtonBuilder().setCustomId(`operation_reject:${operationId}`).setLabel("رفض").setEmoji("❌").setStyle(ButtonStyle.Danger)
@@ -2167,8 +2214,141 @@ function buildDuplicateWarningText(operation) {
     const percent = Number(operation.duplicateMembersPercent) || 0;
     lines.push(`👥 **تشكيلة أفراد متشابهة بنسبة ${percent}%** مع **${operation.duplicateMembersOf}** خلال فترة قصيرة.`);
   }
+  if ((Number(operation.antiFarmCount) || 0) > 0) {
+    const refs = operation.antiFarmOperationIds?.length ? ` (${operation.antiFarmOperationIds.join(", ")})` : "";
+    lines.push(`⏱️ **Anti-Farm:** تم العثور على ${operation.antiFarmCount} عملية مشابهة لنفس الفريق خلال 30 دقيقة${refs}.`);
+  }
   if (lines.length) lines.push("🔎 يرجى من المراجع التحقق قبل القبول.");
   return lines.join("\n");
+}
+
+function getOperationTeamSet(operation) {
+  return new Set([operation.leaderId, ...(operation.memberIds || [])].filter(Boolean));
+}
+
+function getTeamSimilarity(a, b) {
+  const setA = getOperationTeamSet(a);
+  const setB = getOperationTeamSet(b);
+  if (!setA.size || !setB.size) return 0;
+  const intersection = [...setA].filter((id) => setB.has(id)).length;
+  const union = new Set([...setA, ...setB]).size;
+  return union ? intersection / union : 0;
+}
+
+function findAntiFarmSignals(currentOperation) {
+  const windowStart = Date.now() - 30 * 60 * 1000;
+  const validStatuses = new Set(["pending", "approved", "rejected", "correction"]);
+  const matches = [...operations.values()]
+    .filter((op) =>
+      op.id !== currentOperation.id &&
+      op.guildId === currentOperation.guildId &&
+      validStatuses.has(op.status) &&
+      (op.submittedAt || op.createdAt || 0) >= windowStart &&
+      getTeamSimilarity(currentOperation, op) >= 0.75
+    )
+    .sort((a, b) => (b.submittedAt || b.createdAt || 0) - (a.submittedAt || a.createdAt || 0));
+
+  return {
+    count: matches.length,
+    operationIds: matches.slice(0, 5).map((op) => op.id),
+  };
+}
+
+function calculateSuspicion(operation) {
+  let score = 0;
+  const reasons = [];
+
+  if (operation.duplicateProofOf) {
+    score += 60;
+    reasons.push(`📷 نفس الدليل استُخدم في ${operation.duplicateProofOf}`);
+  }
+  if (operation.duplicateMembersOf) {
+    const percent = Number(operation.duplicateMembersPercent) || 0;
+    score += percent >= 90 ? 30 : 20;
+    reasons.push(`👥 تشابه أعضاء ${percent}% مع ${operation.duplicateMembersOf}`);
+  }
+  const farmCount = Number(operation.antiFarmCount) || 0;
+  if (farmCount > 0) {
+    const farmPoints = Math.min(30, farmCount * 10);
+    score += farmPoints;
+    reasons.push(`⏱️ ${farmCount} عملية مشابهة لنفس الفريق خلال 30 دقيقة`);
+  }
+
+  score = Math.min(100, score);
+  const level = score >= 60 ? "high" : score >= 25 ? "medium" : "low";
+  if (!reasons.length) reasons.push("✅ لم يتم اكتشاف مؤشر غير طبيعي");
+  return { score, level, reasons };
+}
+
+function getSuspicionEmoji(level) {
+  return level === "high" ? "🔴" : level === "medium" ? "🟠" : "🟢";
+}
+
+function getSuspicionLabel(level) {
+  return level === "high" ? "مرتفع" : level === "medium" ? "يحتاج مراجعة" : "طبيعي";
+}
+
+function buildOperationAudit(operation) {
+  const suspicion = calculateSuspicion(operation);
+  const lines = [
+    `🔎 **فحص التقرير ${operation.id}**`,
+    "",
+    `${getSuspicionEmoji(suspicion.level)} مستوى المخاطر: **${getSuspicionLabel(suspicion.level)} (${suspicion.score}/100)**`,
+    "",
+    ...suspicion.reasons,
+  ];
+
+  if (operation.antiFarmOperationIds?.length) {
+    lines.push("", `⏱️ عمليات مشابهة حديثاً: **${operation.antiFarmOperationIds.join(", ")}**`);
+  }
+  lines.push("", "ℹ️ هذا الفحص تحذيري ولا يقبل أو يرفض التقرير تلقائياً.");
+  return lines.join("\n").slice(0, 1900);
+}
+
+async function handleRevisionCenterCommand(interaction) {
+  if (!(await canReviewOperations(interaction))) {
+    await interaction.reply({ content: "❌ هذا الأمر مخصص لمسؤولي المراجعة فقط.", flags: MessageFlags.Ephemeral });
+    scheduleEphemeralDelete(interaction);
+    return;
+  }
+
+  const pending = [...operations.values()]
+    .filter((op) => op.guildId === interaction.guildId && op.status === "pending")
+    .map((op) => {
+      const suspicion = calculateSuspicion(op);
+      return { op, suspicion };
+    })
+    .sort((a, b) => b.suspicion.score - a.suspicion.score || (a.op.submittedAt || 0) - (b.op.submittedAt || 0))
+    .slice(0, 15);
+
+  if (!pending.length) {
+    await interaction.reply({ content: "✅ لا توجد تقارير بانتظار المراجعة حالياً.", flags: MessageFlags.Ephemeral });
+    scheduleEphemeralDelete(interaction);
+    return;
+  }
+
+  const lines = pending.map(({ op, suspicion }, index) => {
+    const channelId = op.reviewChannelId || op.reportChannelId;
+    const messageId = op.reviewMessageId || op.reportMessageId;
+    const link = channelId && messageId
+      ? `https://discord.com/channels/${interaction.guildId}/${channelId}/${messageId}`
+      : null;
+    const age = Math.floor((op.submittedAt || op.createdAt || Date.now()) / 1000);
+    return [
+      `**${index + 1}. ${op.id}** ${getSuspicionEmoji(suspicion.level)} **${suspicion.score}/100**`,
+      `└ 👑 <@${op.leaderId}> • <t:${age}:R>${link ? ` • [فتح التقرير](${link})` : ""}`,
+    ].join("\n");
+  });
+
+  const embed = new EmbedBuilder()
+    .setColor(0x5865f2)
+    .setTitle("🛡️ مركز مراجعة العمليات")
+    .setDescription(lines.join("\n\n"))
+    .setFooter({ text: "مرتبة حسب مستوى المخاطر ثم وقت الإرسال • أول 15 تقريراً" })
+    .setTimestamp();
+
+  await interaction.reply({ embeds: [embed], flags: MessageFlags.Ephemeral });
+  scheduleEphemeralDelete(interaction);
 }
 
 async function handleControllerStatsCommand(interaction) {
