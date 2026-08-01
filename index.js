@@ -2,6 +2,7 @@ require("dotenv").config();
 process.env.TZ = process.env.REPORT_TIMEZONE || "Europe/Brussels";
 
 const path = require("path");
+const crypto = require("crypto");
 const {
   ActionRowBuilder,
   AttachmentBuilder,
@@ -527,8 +528,12 @@ client.on(Events.InteractionCreate, async (interaction) => {
         return;
       }
 
-      const duplicate = findRecentDuplicateProof(operation);
-      operation.duplicateOf = duplicate?.id || null;
+      const duplicateSignals = findRecentDuplicateSignals(operation);
+      operation.duplicateProofOf = duplicateSignals.proof?.id || null;
+      operation.duplicateMembersOf = duplicateSignals.members?.operation?.id || null;
+      operation.duplicateMembersPercent = duplicateSignals.members?.percent || null;
+      // Compatibilité avec les anciennes versions du bot.
+      operation.duplicateOf = operation.duplicateProofOf || operation.duplicateMembersOf || null;
       operation.status = "pending";
       operation.submittedAt = Date.now();
       operation.resubmittedAt = operation.correctionReason ? Date.now() : operation.resubmittedAt || null;
@@ -553,8 +558,11 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
       if (reviewRoleIds.length > 0) {
         const roleMentions = reviewRoleIds.map((roleId) => `<@&${roleId}>`).join(" ");
+        const duplicateWarning = buildDuplicateWarningText(operation);
         const notification = await interaction.channel.send({
-          content: `${roleMentions} — العملية **${operation.id}** بانتظار المراجعة.`,
+          content: duplicateWarning
+            ? `${roleMentions} — ⚠️ **تنبيه تكرار محتمل** في العملية **${operation.id}**\n${duplicateWarning}`
+            : `${roleMentions} — العملية **${operation.id}** بانتظار المراجعة.`,
           allowedMentions: { roles: reviewRoleIds },
         }).catch(() => null);
 
@@ -568,8 +576,18 @@ client.on(Events.InteractionCreate, async (interaction) => {
       const submittedNotice = await interaction.followUp({
         content: "✅ تم إرسال التقرير وإبلاغ مسؤولي المراجعة.",
         flags: MessageFlags.Ephemeral,
+        withResponse: true,
       });
-      scheduleMessageDelete(submittedNotice);
+
+      // Les follow-ups éphémères ne sont pas la réponse originale :
+      // deleteReply() ne peut donc pas les supprimer. On supprime précisément
+      // ce message via le webhook Discord après 30 secondes.
+      const submittedMessage = submittedNotice?.resource?.message ?? submittedNotice;
+      if (submittedMessage?.id) {
+        setTimeout(() => {
+          interaction.webhook.deleteMessage(submittedMessage.id).catch(() => {});
+        }, TEMP_MESSAGE_TTL_MS);
+      }
       return;
     }
 
@@ -758,6 +776,8 @@ client.on(Events.MessageCreate, async (message) => {
     }
 
     const imageBuffer = Buffer.from(await response.arrayBuffer());
+    // بصمة ثابتة للصورة: تكشف نفس الدليل حتى لو أعيد رفعه باسم أو رابط مختلف.
+    operation.proofHash = crypto.createHash("sha256").update(imageBuffer).digest("hex");
     const extension = path.extname(attachment.name || "") || ".png";
     const proofFileName = `preuve-${operation.id}${extension}`
       .replace(/[^a-zA-Z0-9._-]/g, "-")
@@ -1969,8 +1989,12 @@ function createOperationEmbed(operation) {
     embed.addFields({ name: "🟠 التصحيح المطلوب", value: operation.correctionReason.slice(0, 1024) });
   }
 
-  if (operation.duplicateOf) {
-    embed.addFields({ name: "⚠️ احتمال وجود تكرار", value: `هذا الدليل مشابه لدليل استُخدم سابقاً في **${operation.duplicateOf}**.` });
+  const duplicateWarningText = buildDuplicateWarningText(operation);
+  if (duplicateWarningText) {
+    embed.addFields({
+      name: "⚠️ تنبيه للمراجعين — احتمال تكرار",
+      value: duplicateWarningText.slice(0, 1024),
+    });
   }
 
   embed
@@ -2091,16 +2115,60 @@ async function sendReviewLog(guild, operation, action) {
   await channel.send({ embeds: [embed] }).catch(() => {});
 }
 
-function findRecentDuplicateProof(currentOperation) {
-  if (!currentOperation?.proofUrl) return null;
-  const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
-  return [...operations.values()].find((op) =>
+function findRecentDuplicateSignals(currentOperation) {
+  const now = Date.now();
+  const proofWindowStart = now - 7 * 24 * 60 * 60 * 1000; // نفس الصورة خلال 7 أيام
+  const membersWindowStart = now - 2 * 60 * 60 * 1000; // أعضاء متشابهون خلال ساعتين
+  const validStatuses = new Set(["pending", "approved", "rejected", "correction"]);
+
+  const previous = [...operations.values()].filter((op) =>
     op.id !== currentOperation.id &&
     op.guildId === currentOperation.guildId &&
-    op.proofUrl === currentOperation.proofUrl &&
-    (op.submittedAt || op.createdAt || 0) >= sevenDaysAgo &&
-    ["pending", "approved", "rejected", "correction"].includes(op.status)
-  ) || null;
+    validStatuses.has(op.status)
+  );
+
+  // 1) نفس الصورة: نعتمد SHA-256، مع fallback للرابط للبيانات القديمة.
+  const proof = previous
+    .filter((op) => (op.submittedAt || op.createdAt || 0) >= proofWindowStart)
+    .find((op) =>
+      (currentOperation.proofHash && op.proofHash && op.proofHash === currentOperation.proofHash) ||
+      (!currentOperation.proofHash && currentOperation.proofUrl && op.proofUrl === currentOperation.proofUrl)
+    ) || null;
+
+  // 2) تقريباً نفس المشاركين: Jaccard >= 75%، مع عضوين على الأقل، خلال ساعتين.
+  const currentMembers = new Set([currentOperation.leaderId, ...(currentOperation.memberIds || [])].filter(Boolean));
+  let members = null;
+  if (currentMembers.size >= 2) {
+    for (const op of previous) {
+      const at = op.submittedAt || op.createdAt || 0;
+      if (at < membersWindowStart) continue;
+      const otherMembers = new Set([op.leaderId, ...(op.memberIds || [])].filter(Boolean));
+      if (otherMembers.size < 2) continue;
+
+      const intersection = [...currentMembers].filter((id) => otherMembers.has(id)).length;
+      const union = new Set([...currentMembers, ...otherMembers]).size;
+      const similarity = union ? intersection / union : 0;
+      if (similarity >= 0.75) {
+        const candidate = { operation: op, percent: Math.round(similarity * 100), intersection, union };
+        if (!members || candidate.percent > members.percent) members = candidate;
+      }
+    }
+  }
+
+  return { proof, members };
+}
+
+function buildDuplicateWarningText(operation) {
+  const lines = [];
+  if (operation.duplicateProofOf) {
+    lines.push(`📷 **نفس الدليل/الصورة** استُخدم سابقاً في **${operation.duplicateProofOf}**.`);
+  }
+  if (operation.duplicateMembersOf) {
+    const percent = Number(operation.duplicateMembersPercent) || 0;
+    lines.push(`👥 **تشكيلة أفراد متشابهة بنسبة ${percent}%** مع **${operation.duplicateMembersOf}** خلال فترة قصيرة.`);
+  }
+  if (lines.length) lines.push("🔎 يرجى من المراجع التحقق قبل القبول.");
+  return lines.join("\n");
 }
 
 async function handleControllerStatsCommand(interaction) {
