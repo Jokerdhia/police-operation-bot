@@ -157,6 +157,47 @@ client.on(Events.InteractionCreate, async (interaction) => {
       `[INTERACTION] ${interaction.user.tag} (${interaction.user.id}) -> ${interactionName}`
     );
 
+    // Une demande de correction passe aussi par un formulaire avec consigne obligatoire.
+    if (interaction.isModalSubmit() && interaction.customId.startsWith("operation_correction_modal:")) {
+      const operationId = interaction.customId.split(":")[1];
+      const operation = operations.get(operationId);
+      if (!(await verifySupervisor(interaction, operation))) return;
+
+      if (!operation || operation.status !== "pending") {
+        await respondEphemeral(interaction, "❌ Ce rapport est introuvable ou a déjà été traité.");
+        return;
+      }
+
+      const reason = interaction.fields.getTextInputValue("correction_reason").trim();
+      if (!reason) {
+        await respondEphemeral(interaction, "❌ La correction demandée est obligatoire.");
+        return;
+      }
+
+      operation.status = "correction";
+      operation.reviewedBy = interaction.user.id;
+      operation.reviewedAt = Date.now();
+      operation.correctionReason = reason;
+      operation.correctionRequestedAt = Date.now();
+      operation.reviewHistory = Array.isArray(operation.reviewHistory) ? operation.reviewHistory : [];
+      operation.reviewHistory.push({ action: "correction", userId: interaction.user.id, at: operation.reviewedAt, reason });
+      operations.set(operation.id, operation);
+      saveOperations();
+
+      const channelId = operation.reviewChannelId || operation.reportChannelId;
+      const messageId = operation.reviewMessageId || operation.reportMessageId;
+      const channel = await interaction.guild.channels.fetch(channelId).catch(() => null);
+      const message = channel?.isTextBased() ? await channel.messages.fetch(messageId).catch(() => null) : null;
+      if (message) {
+        await message.edit({ embeds: [createOperationEmbed(operation)], components: [createOperationButtons(operation.id)] }).catch(() => {});
+      }
+
+      await notifyCorrection(interaction.guild, operation);
+      await sendReviewLog(interaction.guild, operation, "correction");
+      await respondEphemeral(interaction, `🟠 Correction demandée pour **${operation.id}**.`);
+      return;
+    }
+
     // Le refus passe obligatoirement par un formulaire avec motif.
     if (interaction.isModalSubmit() && interaction.customId.startsWith("operation_reject_modal:")) {
       const operationId = interaction.customId.split(":")[1];
@@ -178,6 +219,8 @@ client.on(Events.InteractionCreate, async (interaction) => {
       operation.reviewedBy = interaction.user.id;
       operation.reviewedAt = Date.now();
       operation.rejectionReason = reason;
+      operation.reviewHistory = Array.isArray(operation.reviewHistory) ? operation.reviewHistory : [];
+      operation.reviewHistory.push({ action: "rejected", userId: interaction.user.id, at: operation.reviewedAt, reason });
       operations.set(operation.id, operation);
       saveOperations();
 
@@ -190,13 +233,14 @@ client.on(Events.InteractionCreate, async (interaction) => {
       }
 
       await notifyLeader(interaction.guild, operation, false);
+      await sendReviewLog(interaction.guild, operation, "rejected");
       await respondEphemeral(interaction, `❌ Rapport **${operation.id}** refusé. Motif : **${reason}**`);
       return;
     }
 
     // Discord exige une première réponse en moins de 3 secondes.
     // On confirme immédiatement tous les boutons et menus, puis on modifie le message.
-    if (interaction.isMessageComponent() && !interaction.deferred && !interaction.replied && !interaction.customId?.startsWith("operation_reject:")) {
+    if (interaction.isMessageComponent() && !interaction.deferred && !interaction.replied && !interaction.customId?.startsWith("operation_reject:") && !interaction.customId?.startsWith("operation_correction:")) {
       await interaction.deferUpdate();
     }
     if (interaction.isChatInputCommand()) {
@@ -217,6 +261,11 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
       if (interaction.commandName === "rapport-semaine") {
         await handleWeeklyReportCommand(interaction);
+        return;
+      }
+
+      if (interaction.commandName === "controleurs") {
+        await handleControllerStatsCommand(interaction);
         return;
       }
     }
@@ -478,8 +527,11 @@ client.on(Events.InteractionCreate, async (interaction) => {
         return;
       }
 
+      const duplicate = findRecentDuplicateProof(operation);
+      operation.duplicateOf = duplicate?.id || null;
       operation.status = "pending";
       operation.submittedAt = Date.now();
+      operation.resubmittedAt = operation.correctionReason ? Date.now() : operation.resubmittedAt || null;
 
       // Le rapport actuel devient aussi le rapport de validation : aucun second embed.
       operation.reviewChannelId = interaction.channelId;
@@ -536,6 +588,8 @@ client.on(Events.InteractionCreate, async (interaction) => {
       operation.status = "approved";
       operation.reviewedBy = interaction.user.id;
       operation.reviewedAt = Date.now();
+      operation.reviewHistory = Array.isArray(operation.reviewHistory) ? operation.reviewHistory : [];
+      operation.reviewHistory.push({ action: "approved", userId: interaction.user.id, at: operation.reviewedAt });
       operations.set(operation.id, operation);
       saveOperations();
 
@@ -545,6 +599,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
         components: [],
       });
       await notifyLeader(interaction.guild, operation, true);
+      await sendReviewLog(interaction.guild, operation, "approved");
       return;
     }
 
@@ -568,6 +623,36 @@ client.on(Events.InteractionCreate, async (interaction) => {
         .setCustomId("reject_reason")
         .setLabel("Motif du refus")
         .setPlaceholder("Écris obligatoirement le motif du refus...")
+        .setStyle(TextInputStyle.Paragraph)
+        .setRequired(true)
+        .setMinLength(2)
+        .setMaxLength(800);
+
+      modal.addComponents(new ActionRowBuilder().addComponents(reasonInput));
+      await interaction.showModal(modal);
+      return;
+    }
+
+    if (
+      interaction.isButton() &&
+      interaction.customId.startsWith("operation_correction:")
+    ) {
+      const operation = getOperationFromInteraction(interaction);
+      if (!(await verifySupervisor(interaction, operation))) return;
+
+      if (!operation || operation.status !== "pending") {
+        await respondEphemeral(interaction, "❌ Ce rapport est introuvable ou a déjà été traité.");
+        return;
+      }
+
+      const modal = new ModalBuilder()
+        .setCustomId(`operation_correction_modal:${operation.id}`)
+        .setTitle(`Correction ${operation.id}`);
+
+      const reasonInput = new TextInputBuilder()
+        .setCustomId("correction_reason")
+        .setLabel("Correction demandée")
+        .setPlaceholder("Ex: ajoute la preuve complète ou corrige les membres...")
         .setStyle(TextInputStyle.Paragraph)
         .setRequired(true)
         .setMinLength(2)
@@ -1555,8 +1640,8 @@ async function verifyLeader(interaction, operation) {
 }
 
 async function verifyPreparation(interaction, operation) {
-  if (operation.status !== "preparation") {
-    await respondEphemeral(interaction, "❌ Cette opération a déjà été soumise et ne peut plus être modifiée.");
+  if (!["preparation", "correction"].includes(operation.status)) {
+    await respondEphemeral(interaction, "❌ Cette opération ne peut plus être modifiée.");
     return false;
   }
   return true;
@@ -1880,6 +1965,14 @@ function createOperationEmbed(operation) {
     embed.addFields({ name: "📝 Motif du refus", value: operation.rejectionReason.slice(0, 1024) });
   }
 
+  if (operation.status === "correction" && operation.correctionReason) {
+    embed.addFields({ name: "🟠 Correction demandée", value: operation.correctionReason.slice(0, 1024) });
+  }
+
+  if (operation.duplicateOf) {
+    embed.addFields({ name: "⚠️ Doublon potentiel", value: `Cette preuve ressemble à celle déjà utilisée dans **${operation.duplicateOf}**.` });
+  }
+
   embed
     .setFooter({ text: operation.status === "preparation" ? "Seul le chef peut modifier ce rapport." : `Rapport ${operation.id}` })
     .setTimestamp(operation.createdAt);
@@ -1921,6 +2014,7 @@ function createOperationButtons(operationId) {
 function createReviewButtons(operationId) {
   return new ActionRowBuilder().addComponents(
     new ButtonBuilder().setCustomId(`operation_approve:${operationId}`).setLabel("Valider").setEmoji("✅").setStyle(ButtonStyle.Success),
+    new ButtonBuilder().setCustomId(`operation_correction:${operationId}`).setLabel("Correction").setEmoji("🟠").setStyle(ButtonStyle.Secondary),
     new ButtonBuilder().setCustomId(`operation_reject:${operationId}`).setLabel("Refuser").setEmoji("❌").setStyle(ButtonStyle.Danger)
   );
 }
@@ -1934,18 +2028,127 @@ async function getReviewChannel(interaction) {
 }
 
 async function notifyLeader(guild, operation, approved) {
+  // Envoie toujours la décision en MP au chef/créateur du rapport.
+  // On tente d'abord via le membre du serveur, puis directement via l'utilisateur Discord.
   const member = await guild.members.fetch(operation.leaderId).catch(() => null);
-  if (!member) return;
+  const recipient = member?.user || await client.users.fetch(operation.leaderId).catch(() => null);
+  if (!recipient) return;
+
   const text = approved
     ? `✅ Ton rapport **${operation.id}** a été validé. La prime est comptabilisée.`
-    : `❌ Ton rapport **${operation.id}** a été refusé.\n📝 Motif : ${operation.rejectionReason || "Non précisé"}`;
-  await member.send(text).catch(() => {});
+    : `❌ Ton rapport **${operation.id}** a été refusé.\n\n📝 **Motif du refus :**\n${operation.rejectionReason || "Non précisé"}${operation.reviewedBy ? `\n\n👮 Refusé par : <@${operation.reviewedBy}>` : ""}`;
+
+  await recipient.send({ content: text }).catch((error) => {
+    console.warn(`[DM] Impossible d'envoyer la décision ${operation.id} à ${operation.leaderId}:`, error?.message || error);
+  });
+}
+
+async function notifyCorrection(guild, operation) {
+  const member = await guild.members.fetch(operation.leaderId).catch(() => null);
+  const recipient = member?.user || await client.users.fetch(operation.leaderId).catch(() => null);
+  if (!recipient) return;
+
+  const text = [
+    `🟠 Une correction est demandée pour ton rapport **${operation.id}**.`,
+    "",
+    "📝 **À corriger :**",
+    operation.correctionReason || "Non précisé",
+    operation.reviewedBy ? `\n👮 Demandée par : <@${operation.reviewedBy}>` : "",
+    "",
+    "Tu peux modifier le même rapport puis cliquer de nouveau sur **Soumettre**.",
+  ].join("\n");
+
+  await recipient.send({ content: text }).catch((error) => {
+    console.warn(`[DM] Impossible d'envoyer la correction ${operation.id}:`, error?.message || error);
+  });
+}
+
+async function sendReviewLog(guild, operation, action) {
+  const channel = await getLogsChannel(guild).catch(() => null);
+  if (!channel?.isTextBased()) return;
+
+  const labels = {
+    approved: ["✅ Rapport validé", 0x57f287],
+    rejected: ["❌ Rapport refusé", 0xed4245],
+    correction: ["🟠 Correction demandée", 0xfee75c],
+  };
+  const [title, color] = labels[action] || ["📋 Rapport traité", 0x5865f2];
+  const embed = new EmbedBuilder()
+    .setColor(color)
+    .setTitle(`${title} — ${operation.id}`)
+    .addFields(
+      { name: "👑 Chef", value: `<@${operation.leaderId}>`, inline: true },
+      { name: "👮 Contrôleur", value: operation.reviewedBy ? `<@${operation.reviewedBy}>` : "Inconnu", inline: true },
+      { name: "🚔 Opération", value: operation.operationName || operation.operationKey || "Inconnue" }
+    )
+    .setTimestamp(operation.reviewedAt || Date.now());
+  if (action === "rejected" && operation.rejectionReason) {
+    embed.addFields({ name: "📝 Motif du refus", value: operation.rejectionReason.slice(0, 1024) });
+  }
+  if (action === "correction" && operation.correctionReason) {
+    embed.addFields({ name: "📝 Correction demandée", value: operation.correctionReason.slice(0, 1024) });
+  }
+  await channel.send({ embeds: [embed] }).catch(() => {});
+}
+
+function findRecentDuplicateProof(currentOperation) {
+  if (!currentOperation?.proofUrl) return null;
+  const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
+  return [...operations.values()].find((op) =>
+    op.id !== currentOperation.id &&
+    op.guildId === currentOperation.guildId &&
+    op.proofUrl === currentOperation.proofUrl &&
+    (op.submittedAt || op.createdAt || 0) >= sevenDaysAgo &&
+    ["pending", "approved", "rejected", "correction"].includes(op.status)
+  ) || null;
+}
+
+async function handleControllerStatsCommand(interaction) {
+  if (!(await canReviewOperations(interaction))) {
+    await interaction.reply({ content: "❌ Cette commande est réservée aux responsables de validation.", flags: MessageFlags.Ephemeral });
+    scheduleEphemeralDelete(interaction);
+    return;
+  }
+
+  const range = getCurrentWeekRange();
+  const stats = new Map();
+  for (const op of operations.values()) {
+    if (op.guildId !== interaction.guildId) continue;
+    const history = Array.isArray(op.reviewHistory) && op.reviewHistory.length
+      ? op.reviewHistory
+      : (op.reviewedBy ? [{ action: op.status, userId: op.reviewedBy, at: op.reviewedAt || 0 }] : []);
+    for (const action of history) {
+      const time = action.at || 0;
+      if (!action.userId || time < range.start.getTime() || time > range.end.getTime()) continue;
+      const row = stats.get(action.userId) || { approved: 0, rejected: 0, correction: 0 };
+      if (action.action === "approved") row.approved += 1;
+      else if (action.action === "rejected") row.rejected += 1;
+      else if (action.action === "correction") row.correction += 1;
+      stats.set(action.userId, row);
+    }
+  }
+
+  const rows = [...stats.entries()]
+    .map(([userId, x]) => ({ userId, ...x, total: x.approved + x.rejected + x.correction }))
+    .sort((a, b) => b.total - a.total)
+    .slice(0, 20);
+
+  const description = rows.length
+    ? rows.map((x, i) => `**${i + 1}.** <@${x.userId}> — **${x.total}** traité(s)\n└ ✅ ${x.approved} • ❌ ${x.rejected} • 🟠 ${x.correction}`).join("\n\n")
+    : "Aucune validation enregistrée cette semaine.";
+
+  await interaction.reply({
+    embeds: [new EmbedBuilder().setColor(0x5865f2).setTitle("👮 Statistiques des contrôleurs — semaine").setDescription(description).setTimestamp()],
+    flags: MessageFlags.Ephemeral,
+  });
+  scheduleEphemeralDelete(interaction);
 }
 
 function getStatusText(operation) {
   if (operation.status === "pending") return "🟠 En attente de validation";
   if (operation.status === "approved") return operation.reviewedBy ? `✅ Validée par <@${operation.reviewedBy}>` : "✅ Validée";
   if (operation.status === "rejected") return operation.reviewedBy ? `❌ Refusée par <@${operation.reviewedBy}>` : "❌ Refusée";
+  if (operation.status === "correction") return operation.reviewedBy ? `🟠 Correction demandée par <@${operation.reviewedBy}>` : "🟠 Correction demandée";
   return "🟡 En préparation";
 }
 

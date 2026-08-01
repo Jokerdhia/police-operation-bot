@@ -31,6 +31,10 @@ const commands = [
     .setDescription("Afficher le Top 10 hebdomadaire des policiers"),
 
   new SlashCommandBuilder()
+    .setName("controleurs")
+    .setDescription("Afficher les statistiques hebdomadaires des contrôleurs"),
+
+  new SlashCommandBuilder()
     .setName("rapport-semaine")
     .setDescription("Publier un rapport hebdomadaire des opérations")
     .addStringOption((option) =>
@@ -49,7 +53,7 @@ const rest = new REST({ version: "10" }).setToken(TOKEN);
 
 async function deployCommands() {
   try {
-    console.log("⏳ Installation des commandes /operation, /prime, /classement et /rapport-semaine...");
+    console.log("⏳ Installation des commandes /operation, /prime, /classement, /controleurs et /rapport-semaine...");
 
     await rest.put(Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID), {
       body: commands,
