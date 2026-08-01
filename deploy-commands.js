@@ -14,37 +14,37 @@ if (!TOKEN || !CLIENT_ID || !GUILD_ID) {
 const commands = [
   new SlashCommandBuilder()
     .setName("operation")
-    .setDescription("Créer un nouveau rapport d'opération de police"),
+    .setDescription("إنشاء تقرير جديد لعملية شرطة"),
 
   new SlashCommandBuilder()
     .setName("prime")
-    .setDescription("Afficher ta prime hebdomadaire ou celle d'un policier")
+    .setDescription("عرض مكافأتك الأسبوعية أو مكافأة شرطي آخر")
     .addUserOption((option) =>
       option
         .setName("policier")
-        .setDescription("Policier à consulter — laisse vide pour voir ta prime")
+        .setDescription("اختر الشرطي — اتركه فارغاً لعرض مكافأتك")
         .setRequired(false)
     ),
 
   new SlashCommandBuilder()
     .setName("classement")
-    .setDescription("Afficher le Top 10 hebdomadaire des policiers"),
+    .setDescription("عرض أفضل 10 أفراد شرطة أسبوعياً"),
 
   new SlashCommandBuilder()
     .setName("controleurs")
-    .setDescription("Afficher les statistiques hebdomadaires des contrôleurs"),
+    .setDescription("عرض الإحصائيات الأسبوعية للمراجعين"),
 
   new SlashCommandBuilder()
     .setName("rapport-semaine")
-    .setDescription("Publier un rapport hebdomadaire des opérations")
+    .setDescription("نشر التقرير الأسبوعي للعمليات")
     .addStringOption((option) =>
       option
         .setName("periode")
-        .setDescription("Choisir la semaine à afficher")
+        .setDescription("اختر الأسبوع المراد عرضه")
         .setRequired(false)
         .addChoices(
-          { name: "Semaine actuelle", value: "current" },
-          { name: "Semaine précédente", value: "previous" }
+          { name: "الأسبوع الحالي", value: "current" },
+          { name: "الأسبوع السابق", value: "previous" }
         )
     ),
 ].map((command) => command.toJSON());
@@ -59,7 +59,7 @@ async function deployCommands() {
       body: commands,
     });
 
-    console.log("✅ Commandes installées avec succès.");
+    console.log("✅ تم تثبيت الأوامر بنجاح.");
   } catch (error) {
     console.error("❌ Erreur pendant l'installation des commandes :", error);
     process.exit(1);

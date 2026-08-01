@@ -8,23 +8,23 @@ function numberFromEnv(name, fallback) {
 
 
 const operationTypes = {
-  house: { name: "House", emoji: "🏠", categoryKey: "minor" },
-  atm: { name: "ATM", emoji: "🏧", categoryKey: "minor" },
-  store: { name: "Store", emoji: "🏪", categoryKey: "minor" },
-  drug_sell: { name: "Drug Sell", emoji: "💊", categoryKey: "minor" },
-  shot_fire: { name: "Shot Fire", emoji: "🔫", categoryKey: "minor" },
+  house: { name: "منزل", emoji: "🏠", categoryKey: "minor" },
+  atm: { name: "صراف آلي", emoji: "🏧", categoryKey: "minor" },
+  store: { name: "متجر", emoji: "🏪", categoryKey: "minor" },
+  drug_sell: { name: "بيع مخدرات", emoji: "💊", categoryKey: "minor" },
+  shot_fire: { name: "إطلاق نار", emoji: "🔫", categoryKey: "minor" },
 
-  fleeca: { name: "Fleeca", emoji: "🏦", categoryKey: "medium" },
-  bijoux: { name: "Bijoux", emoji: "💎", categoryKey: "medium" },
-  paleto_ammunation: { name: "Paleto Ammu-Nation", emoji: "🔫", categoryKey: "medium" },
+  fleeca: { name: "بنك فليكا", emoji: "🏦", categoryKey: "medium" },
+  bijoux: { name: "محل مجوهرات", emoji: "💎", categoryKey: "medium" },
+  paleto_ammunation: { name: "أمونيشن باليتو", emoji: "🔫", categoryKey: "medium" },
 
-  yacht: { name: "Yacht", emoji: "🛥️", categoryKey: "major" },
-  cargo_ship: { name: "Cargo Ship", emoji: "🚢", categoryKey: "major" },
-  labo: { name: "Laboratoire", emoji: "🧪", categoryKey: "major" },
-  pacific_bank: { name: "Pacific Bank", emoji: "🏛️", categoryKey: "major" },
-  post_bank: { name: "Post Bank", emoji: "🏤", categoryKey: "major" },
-  submarine: { name: "Submarine", emoji: "🚇", categoryKey: "major" },
-  train: { name: "Train", emoji: "🚂", categoryKey: "major" },
+  yacht: { name: "يخت", emoji: "🛥️", categoryKey: "major" },
+  cargo_ship: { name: "سفينة شحن", emoji: "🚢", categoryKey: "major" },
+  labo: { name: "مختبر", emoji: "🧪", categoryKey: "major" },
+  pacific_bank: { name: "بنك باسيفيك", emoji: "🏛️", categoryKey: "major" },
+  post_bank: { name: "بنك البريد", emoji: "🏤", categoryKey: "major" },
+  submarine: { name: "غواصة", emoji: "🚇", categoryKey: "major" },
+  train: { name: "قطار", emoji: "🚂", categoryKey: "major" },
 };
 
 module.exports = {
@@ -39,19 +39,19 @@ module.exports = {
 
   rewards: {
     minor: {
-      name: "Opération mineure",
+      name: "عملية صغرى",
       emoji: "🟢",
       leaderBonus: numberFromEnv("MINOR_LEADER", 4000),
       memberBonus: numberFromEnv("MINOR_MEMBER", 3000),
     },
     medium: {
-      name: "Opération moyenne",
+      name: "عملية متوسطة",
       emoji: "🟡",
       leaderBonus: numberFromEnv("MEDIUM_LEADER", 9000),
       memberBonus: numberFromEnv("MEDIUM_MEMBER", 7000),
     },
     major: {
-      name: "Grande opération",
+      name: "عملية كبرى",
       emoji: "🔴",
       leaderBonus: numberFromEnv("MAJOR_LEADER", 15000),
       memberBonus: numberFromEnv("MAJOR_MEMBER", 12000),

@@ -130,7 +130,7 @@ client.once(Events.ClientReady, async (readyClient) => {
     await ensureGuildMembersLoaded(guild);
   }
 
-  readyClient.user.setActivity("les opérations de police");
+  readyClient.user.setActivity("عمليات الشرطة");
   await processPendingOfficerResets(readyClient);
   startOfficerResetScheduler(readyClient);
   startWeeklyReportScheduler(readyClient);
@@ -164,13 +164,13 @@ client.on(Events.InteractionCreate, async (interaction) => {
       if (!(await verifySupervisor(interaction, operation))) return;
 
       if (!operation || operation.status !== "pending") {
-        await respondEphemeral(interaction, "❌ Ce rapport est introuvable ou a déjà été traité.");
+        await respondEphemeral(interaction, "❌ هذا التقرير غير موجود أو تمت معالجته بالفعل.");
         return;
       }
 
       const reason = interaction.fields.getTextInputValue("correction_reason").trim();
       if (!reason) {
-        await respondEphemeral(interaction, "❌ La correction demandée est obligatoire.");
+        await respondEphemeral(interaction, "❌ يجب كتابة التصحيح المطلوب.");
         return;
       }
 
@@ -192,9 +192,9 @@ client.on(Events.InteractionCreate, async (interaction) => {
         await message.edit({ embeds: [createOperationEmbed(operation)], components: [createOperationButtons(operation.id)] }).catch(() => {});
       }
 
-      await notifyCorrection(interaction.guild, operation);
+      await notifyتصحيح(interaction.guild, operation);
       await sendReviewLog(interaction.guild, operation, "correction");
-      await respondEphemeral(interaction, `🟠 Correction demandée pour **${operation.id}**.`);
+      await respondEphemeral(interaction, `🟠 تم طلب تصحيح للتقرير **${operation.id}**.`);
       return;
     }
 
@@ -205,13 +205,13 @@ client.on(Events.InteractionCreate, async (interaction) => {
       if (!(await verifySupervisor(interaction, operation))) return;
 
       if (!operation || operation.status !== "pending") {
-        await respondEphemeral(interaction, "❌ Ce rapport est introuvable ou a déjà été traité.");
+        await respondEphemeral(interaction, "❌ هذا التقرير غير موجود أو تمت معالجته بالفعل.");
         return;
       }
 
       const reason = interaction.fields.getTextInputValue("reject_reason").trim();
       if (!reason) {
-        await respondEphemeral(interaction, "❌ Le motif du refus est obligatoire.");
+        await respondEphemeral(interaction, "❌ سبب الرفض إلزامي.");
         return;
       }
 
@@ -234,7 +234,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
       await notifyLeader(interaction.guild, operation, false);
       await sendReviewLog(interaction.guild, operation, "rejected");
-      await respondEphemeral(interaction, `❌ Rapport **${operation.id}** refusé. Motif : **${reason}**`);
+      await respondEphemeral(interaction, `❌ تم رفض التقرير **${operation.id}**. السبب: **${reason}**`);
       return;
     }
 
@@ -278,7 +278,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
       const operationType = config.operationTypes[operationKey];
 
       if (!operationType) {
-        await respondEphemeral(interaction, "❌ Cette opération n’existe pas.");
+        await respondEphemeral(interaction, "❌ هذه العملية غير موجودة.");
         return;
       }
 
@@ -311,7 +311,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
       saveOperations();
 
       await interaction.editReply({
-        content: `✅ Rapport **${operation.id}** créé dans ce salon.`,
+        content: `✅ تم إنشاء التقرير **${operation.id}** في هذه القناة.`,
         embeds: [],
         components: [],
       });
@@ -332,7 +332,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
       if (!loaded) {
         await respondEphemeral(
           interaction,
-          "❌ Impossible de charger la liste complète des policiers pour le moment. Réessaie dans quelques secondes."
+          "❌ تعذر تحميل قائمة أفراد الشرطة كاملة حالياً. حاول مرة أخرى بعد بضع ثوانٍ."
         );
         return;
       }
@@ -341,7 +341,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
       if (policeMembers.size === 0) {
         await respondEphemeral(
           interaction,
-          "❌ Aucun autre membre avec le rôle Police n’est disponible. Vérifie que les membres possèdent bien ce rôle."
+          "❌ لا يوجد أي عضو آخر يحمل رتبة Police حالياً. تأكد من أن الأعضاء لديهم هذه الرتبة."
         );
         return;
       }
@@ -451,7 +451,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
       const cancelButton = new ButtonBuilder()
         .setCustomId(`operation_proof_cancel:${operation.id}`)
-        .setLabel("Annuler")
+        .setLabel("إلغاء")
         .setEmoji("❌")
         .setStyle(ButtonStyle.Danger);
 
@@ -459,13 +459,13 @@ client.on(Events.InteractionCreate, async (interaction) => {
         embeds: [
           createOperationEmbed(operation).setDescription(
             [
-              "📷 **Ajout d’une preuve**",
+              "📷 **إضافة دليل**",
               "",
-              `<@${operation.leaderId}>, envoie maintenant **une image dans ce même salon**.`,
-              "Le bot l’intégrera dans le rapport puis supprimera automatiquement ton message.",
+              `<@${operation.leaderId}>, أرسل الآن **صورة في نفس القناة**.`,
+              "سيضيف البوت الصورة إلى التقرير ثم يحذف رسالتك تلقائياً.",
               "",
-              "Formats acceptés : **JPG, JPEG, PNG ou WEBP**.",
-              "⏳ Délai : **2 minutes**.",
+              "الصيغ المقبولة: **JPG وJPEG وPNG وWEBP**.",
+              "⏳ المهلة: **دقيقتان**.",
             ].join("\n")
           ),
         ],
@@ -518,12 +518,12 @@ client.on(Events.InteractionCreate, async (interaction) => {
       if (!(await verifyPreparation(interaction, operation))) return;
 
       if (operation.memberIds.length === 0) {
-        await respondEphemeral(interaction, "❌ Tu dois ajouter au moins un policier avant de soumettre le rapport.");
+        await respondEphemeral(interaction, "❌ يجب إضافة شرطي واحد على الأقل قبل إرسال التقرير.");
         return;
       }
 
       if (!operation.proofUrl) {
-        await respondEphemeral(interaction, "❌ Tu dois ajouter une preuve avant de soumettre le rapport.");
+        await respondEphemeral(interaction, "❌ يجب إضافة دليل قبل إرسال التقرير.");
         return;
       }
 
@@ -554,7 +554,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
       if (reviewRoleIds.length > 0) {
         const roleMentions = reviewRoleIds.map((roleId) => `<@&${roleId}>`).join(" ");
         const notification = await interaction.channel.send({
-          content: `${roleMentions} — L’opération **${operation.id}** attend une validation.`,
+          content: `${roleMentions} — العملية **${operation.id}** بانتظار المراجعة.`,
           allowedMentions: { roles: reviewRoleIds },
         }).catch(() => null);
 
@@ -566,7 +566,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
       }
 
       const submittedNotice = await interaction.followUp({
-        content: "✅ Rapport soumis. Les responsables de validation ont été prévenus.",
+        content: "✅ تم إرسال التقرير وإبلاغ مسؤولي المراجعة.",
         flags: MessageFlags.Ephemeral,
       });
       scheduleMessageDelete(submittedNotice);
@@ -581,7 +581,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
       if (!(await verifySupervisor(interaction, operation))) return;
 
       if (!operation || operation.status !== "pending") {
-        await respondEphemeral(interaction, "❌ Ce rapport est introuvable ou a déjà été traité.");
+        await respondEphemeral(interaction, "❌ هذا التقرير غير موجود أو تمت معالجته بالفعل.");
         return;
       }
 
@@ -611,18 +611,18 @@ client.on(Events.InteractionCreate, async (interaction) => {
       if (!(await verifySupervisor(interaction, operation))) return;
 
       if (!operation || operation.status !== "pending") {
-        await respondEphemeral(interaction, "❌ Ce rapport est introuvable ou a déjà été traité.");
+        await respondEphemeral(interaction, "❌ هذا التقرير غير موجود أو تمت معالجته بالفعل.");
         return;
       }
 
       const modal = new ModalBuilder()
         .setCustomId(`operation_reject_modal:${operation.id}`)
-        .setTitle(`Refuser ${operation.id}`);
+        .setTitle(`رفض ${operation.id}`);
 
       const reasonInput = new TextInputBuilder()
         .setCustomId("reject_reason")
-        .setLabel("Motif du refus")
-        .setPlaceholder("Écris obligatoirement le motif du refus...")
+        .setLabel("سبب الرفض")
+        .setPlaceholder("اكتب سبب الرفض بشكل إلزامي...")
         .setStyle(TextInputStyle.Paragraph)
         .setRequired(true)
         .setMinLength(2)
@@ -641,18 +641,18 @@ client.on(Events.InteractionCreate, async (interaction) => {
       if (!(await verifySupervisor(interaction, operation))) return;
 
       if (!operation || operation.status !== "pending") {
-        await respondEphemeral(interaction, "❌ Ce rapport est introuvable ou a déjà été traité.");
+        await respondEphemeral(interaction, "❌ هذا التقرير غير موجود أو تمت معالجته بالفعل.");
         return;
       }
 
       const modal = new ModalBuilder()
         .setCustomId(`operation_correction_modal:${operation.id}`)
-        .setTitle(`Correction ${operation.id}`);
+        .setTitle(`تصحيح ${operation.id}`);
 
       const reasonInput = new TextInputBuilder()
         .setCustomId("correction_reason")
-        .setLabel("Correction demandée")
-        .setPlaceholder("Ex: ajoute la preuve complète ou corrige les membres...")
+        .setLabel("التصحيح المطلوب")
+        .setPlaceholder("مثال: أضف الدليل الكامل أو صحح قائمة المشاركين...")
         .setStyle(TextInputStyle.Paragraph)
         .setRequired(true)
         .setMinLength(2)
@@ -666,7 +666,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
   } catch (error) {
     console.error("❌ Erreur pendant une interaction :", error);
     const response = {
-      content: "❌ Une erreur est survenue pendant l’utilisation du bot.",
+      content: "❌ حدث خطأ أثناء استخدام البوت.",
       flags: MessageFlags.Ephemeral,
     };
 
@@ -734,7 +734,7 @@ client.on(Events.MessageCreate, async (message) => {
     const attachment = message.attachments.first();
     if (!attachment) {
       await message.reply({
-        content: "❌ Tu dois envoyer une image en pièce jointe.",
+        content: "❌ يجب إرسال صورة كمرفق.",
         allowedMentions: { repliedUser: false },
       });
       return;
@@ -742,7 +742,7 @@ client.on(Events.MessageCreate, async (message) => {
 
     if (!isValidImage(attachment)) {
       await message.reply({
-        content: "❌ Format incorrect. Envoie une image JPG, JPEG, PNG ou WEBP.",
+        content: "❌ صيغة غير صحيحة. أرسل صورة JPG أو JPEG أو PNG أو WEBP.",
         allowedMentions: { repliedUser: false },
       });
       return;
@@ -751,7 +751,7 @@ client.on(Events.MessageCreate, async (message) => {
     const response = await fetch(attachment.url);
     if (!response.ok) {
       await message.reply({
-        content: "❌ Impossible de récupérer cette image. Réessaie avec une autre preuve.",
+        content: "❌ تعذر تحميل هذه الصورة. حاول باستخدام دليل آخر.",
         allowedMentions: { repliedUser: false },
       });
       return;
@@ -771,7 +771,7 @@ client.on(Events.MessageCreate, async (message) => {
     if (!reportMessage) {
       pendingProofs.delete(proofKey);
       await message.reply({
-        content: "❌ Le rapport de l’opération est introuvable.",
+        content: "❌ تعذر العثور على تقرير العملية.",
         allowedMentions: { repliedUser: false },
       });
       return;
@@ -813,7 +813,7 @@ client.on(Events.MessageCreate, async (message) => {
 async function handleOperationCommand(interaction) {
   if (!(await hasPoliceRole(interaction.guild, interaction.user.id))) {
     await interaction.reply({
-      content: "❌ Tu dois avoir le rôle Police pour créer une opération.",
+      content: "❌ يجب أن تكون لديك رتبة Police لإنشاء عملية.",
       flags: MessageFlags.Ephemeral,
     });
     return;
@@ -821,19 +821,19 @@ async function handleOperationCommand(interaction) {
 
   const embed = new EmbedBuilder()
     .setColor(0x2b2d31)
-    .setTitle("🚨 Création d’une opération")
+    .setTitle("🚨 إنشاء عملية")
     .setDescription(
       [
-        "Sélectionne directement le **nom de l’opération**.",
+        "اختر مباشرة **اسم العملية**.",
         "",
-        "Le bot choisira automatiquement la catégorie et calculera les primes.",
+        "سيحدد البوت الفئة تلقائياً ويحسب المكافآت.",
         "",
-        `🟢 **Mineure** — Chef : **${formatMoney(config.rewards.minor.leaderBonus)} €** | Membre : **${formatMoney(config.rewards.minor.memberBonus)} €**`,
-        `🟡 **Moyenne** — Chef : **${formatMoney(config.rewards.medium.leaderBonus)} €** | Membre : **${formatMoney(config.rewards.medium.memberBonus)} €**`,
-        `🔴 **Grande** — Chef : **${formatMoney(config.rewards.major.leaderBonus)} €** | Membre : **${formatMoney(config.rewards.major.memberBonus)} €**`,
+        `🟢 **صغرى** — القائد: **${formatMoney(config.rewards.minor.leaderBonus)} €** | العضو: **${formatMoney(config.rewards.minor.memberBonus)} €**`,
+        `🟡 **متوسطة** — القائد: **${formatMoney(config.rewards.medium.leaderBonus)} €** | العضو: **${formatMoney(config.rewards.medium.memberBonus)} €**`,
+        `🔴 **كبرى** — القائد: **${formatMoney(config.rewards.major.leaderBonus)} €** | العضو: **${formatMoney(config.rewards.major.memberBonus)} €**`,
       ].join("\n")
     )
-    .setFooter({ text: "Tu deviendras automatiquement le chef de l’opération." });
+    .setFooter({ text: "ستصبح تلقائياً قائد العملية." });
 
   await interaction.reply({ embeds: [embed], components: [createOperationTypeSelect()], flags: MessageFlags.Ephemeral });
 }
@@ -843,7 +843,7 @@ async function handlePrimeCommand(interaction) {
 
   if (requestedUser.id !== interaction.user.id && !(await isSupervisor(interaction))) {
     await interaction.reply({
-      content: "❌ Seuls les superviseurs peuvent consulter la prime d’un autre policier.",
+      content: "❌ يمكن للمشرفين فقط الاطلاع على مكافأة شرطي آخر.",
       flags: MessageFlags.Ephemeral,
     });
     return;
@@ -851,7 +851,7 @@ async function handlePrimeCommand(interaction) {
 
   if (!(await hasPoliceRole(interaction.guild, requestedUser.id))) {
     await interaction.reply({
-      content: "❌ Ce membre n’a pas le rôle Police. Son historique n’est pas affiché.",
+      content: "❌ هذا العضو لا يحمل رتبة Police، لذلك لن يتم عرض سجله.",
       flags: MessageFlags.Ephemeral,
     });
     return;
@@ -862,31 +862,31 @@ async function handlePrimeCommand(interaction) {
 
   const embed = new EmbedBuilder()
     .setColor(0xfee75c)
-    .setTitle(`💰 Prime hebdomadaire — ${requestedUser.username}`)
+    .setTitle(`💰 المكافأة الأسبوعية — ${requestedUser.username}`)
     .setThumbnail(requestedUser.displayAvatarURL())
     .setDescription(`Du <t:${Math.floor(start.getTime() / 1000)}:d> au <t:${Math.floor(end.getTime() / 1000)}:d>`)
     .addFields(
       {
-        name: "👑 Comme chef d’opération",
+        name: "👑 كقائد عملية",
         value: formatStatsBlock(stats.leader, "leaderBonus"),
         inline: false,
       },
       {
-        name: "👥 Comme participant",
+        name: "👥 كمشارك",
         value: formatStatsBlock(stats.member, "memberBonus"),
         inline: false,
       },
       {
-        name: "📊 Résumé",
+        name: "📊 الملخص",
         value: [
-          `Opérations comme chef : **${stats.leader.totalCount}**`,
-          `Opérations comme participant : **${stats.member.totalCount}**`,
-          `Total des opérations : **${stats.leader.totalCount + stats.member.totalCount}**`,
+          `العمليات كقائد: **${stats.leader.totalCount}**`,
+          `العمليات كمشارك: **${stats.member.totalCount}**`,
+          `إجمالي العمليات: **${stats.leader.totalCount + stats.member.totalCount}**`,
         ].join("\n"),
         inline: false,
       },
       {
-        name: "💵 Prime totale",
+        name: "💵 إجمالي المكافأة",
         value: `**${formatMoney(stats.totalBonus)} €**`,
         inline: false,
       }
@@ -906,17 +906,17 @@ async function handleRankingCommand(interaction) {
     ? ranking.map((entry, index) => {
         const medals = ["🥇", "🥈", "🥉"];
         const rank = medals[index] || `**${index + 1}.**`;
-        return `${rank} <@${entry.userId}> — **${formatMoney(entry.totalBonus)} €**\n└ ${entry.operationCount} opération(s), dont ${entry.leaderCount} comme chef`;
+        return `${rank} <@${entry.userId}> — **${formatMoney(entry.totalBonus)} €**\n└ ${entry.operationCount} عملية، منها ${entry.leaderCount} كقائد`;
       })
-    : ["Aucune opération validée cette semaine."];
+    : ["لا توجد عمليات معتمدة هذا الأسبوع."];
 
   const embed = new EmbedBuilder()
     .setColor(0x5865f2)
-    .setTitle("🏆 Classement hebdomadaire des policiers")
+    .setTitle("🏆 الترتيب الأسبوعي لأفراد الشرطة")
     .setDescription(
       `Du <t:${Math.floor(start.getTime() / 1000)}:d> au <t:${Math.floor(end.getTime() / 1000)}:d>\n\n${lines.join("\n\n")}`
     )
-    .setFooter({ text: "Classement basé sur les primes des opérations validées." })
+    .setFooter({ text: "الترتيب يعتمد على مكافآت العمليات المعتمدة." })
     .setTimestamp();
 
   await interaction.reply({ embeds: [embed] });
@@ -927,7 +927,7 @@ async function handleWeeklyReportCommand(interaction) {
     console.log("Résultat : REFUSÉ — rôle Operations Controller ou Chief of Police absent.");
     await interaction.reply({
       content:
-        "❌ Seuls les **Operations Controller** ou le **Chief of Police** peuvent publier un rapport hebdomadaire.",
+        "❌ فقط **Operations Controller** أو **Chief of Police** يمكنهم نشر التقرير الأسبوعي.",
       flags: MessageFlags.Ephemeral,
     });
     return;
@@ -940,7 +940,7 @@ async function handleWeeklyReportCommand(interaction) {
   const targetChannel = await getStatsChannel(interaction.guild);
   if (!targetChannel) {
     await interaction.reply({
-      content: "❌ Le salon statistiques est introuvable. Vérifie STATS_CHANNEL_ID dans ton fichier .env.",
+      content: "❌ تعذر العثور على قناة الإحصائيات. تحقق من STATS_CHANNEL_ID في ملف .env.",
       flags: MessageFlags.Ephemeral,
     });
     return;
@@ -955,7 +955,7 @@ async function handleWeeklyReportCommand(interaction) {
 
   const logsChannel = await getLogsChannel(interaction.guild);
   if (logsChannel && logsChannel.id !== targetChannel.id) {
-    await sendReportCopyToLogs(logsChannel, embeds, "Publication manuelle du rapport hebdomadaire");
+    await sendReportCopyToLogs(logsChannel, embeds, "النشر اليدوي للتقرير الأسبوعي");
   }
 
   archiveWeeklyReport(interaction.guildId, range, messageIds, interaction.user.id, false);
@@ -1068,10 +1068,10 @@ function getPreviousWeekRange(reference = new Date()) {
 
 async function createWeeklyReportEmbeds(guild, range, options = {}) {
   const guildId = guild.id;
-  const reportTitle = options.title || "📊 Rapport hebdomadaire de la police";
-  const rankingTitle = options.rankingTitle || "🏆 Classement hebdomadaire";
+  const reportTitle = options.title || "📊 التقرير الأسبوعي للشرطة";
+  const rankingTitle = options.rankingTitle || "🏆 الترتيب الأسبوعي";
   const periodLabel = options.periodLabel || `Période : <t:${Math.floor(range.start.getTime() / 1000)}:d> au <t:${Math.floor(range.end.getTime() / 1000)}:d>`;
-  const footerText = options.footerText || "Seules les opérations validées sont comptabilisées.";
+  const footerText = options.footerText || "يتم احتساب العمليات المعتمدة فقط.";
   const activePoliceIds = await getActivePoliceUserIds(guild);
   const ranking = calculateWeeklyRanking(guildId, range, activePoliceIds);
   const approvedOperations = [...operations.values()].filter((operation) => {
@@ -1104,15 +1104,15 @@ async function createWeeklyReportEmbeds(guild, range, options = {}) {
     .setTitle(reportTitle)
     .setDescription(periodLabel)
     .addFields(
-      { name: "🚨 Opérations validées", value: `**${approvedOperations.length}**`, inline: true },
-      { name: "💵 Primes totales", value: `**${formatMoney(totalBonuses)} €**`, inline: true },
-      { name: "👮 Policiers classés", value: `**${ranking.length}**`, inline: true },
+      { name: "🚨 العمليات المعتمدة", value: `**${approvedOperations.length}**`, inline: true },
+      { name: "💵 إجمالي المكافآت", value: `**${formatMoney(totalBonuses)} €**`, inline: true },
+      { name: "👮 أفراد الشرطة في الترتيب", value: `**${ranking.length}**`, inline: true },
       {
-        name: "📂 Répartition",
+        name: "📂 التوزيع",
         value: [
-          `🟢 Mineures : **${categoryCounts.minor}**`,
-          `🟡 Moyennes : **${categoryCounts.medium}**`,
-          `🔴 Grandes : **${categoryCounts.major}**`,
+          `🟢 صغرىs : **${categoryCounts.minor}**`,
+          `🟡 متوسطةs : **${categoryCounts.medium}**`,
+          `🔴 كبرىs : **${categoryCounts.major}**`,
         ].join("\n"),
       }
     )
@@ -1125,7 +1125,7 @@ async function createWeeklyReportEmbeds(guild, range, options = {}) {
       new EmbedBuilder()
         .setColor(0x2b2d31)
         .setTitle(rankingTitle)
-        .setDescription("Aucune opération validée pendant cette période.")
+        .setDescription("لا توجد عمليات معتمدة خلال هذه الفترة.")
     );
     return embeds;
   }
@@ -1137,7 +1137,7 @@ async function createWeeklyReportEmbeds(guild, range, options = {}) {
       const medal = position === 1 ? "🥇" : position === 2 ? "🥈" : position === 3 ? "🥉" : `**${position}.**`;
       return [
         `${medal} <@${entry.userId}> — **${formatMoney(entry.totalBonus)} €**`,
-        `└ Chef : **${entry.leaderCount}** | Participant : **${entry.operationCount - entry.leaderCount}** | Total : **${entry.operationCount}**`,
+        `└ القائد: **${entry.leaderCount}** | مشارك: **${entry.operationCount - entry.leaderCount}** | الإجمالي: **${entry.operationCount}**`,
       ].join("\n");
     });
 
@@ -1180,7 +1180,7 @@ function isPrimeReportMessage(message, botUserId) {
     return title.startsWith("💼 Résumé hebdomadaire") ||
       title.startsWith("📊 Rapport hebdomadaire") ||
       title.startsWith("🧪 Primes — période de test") ||
-      title.startsWith("🏆 Classement hebdomadaire") ||
+      title.startsWith("🏆 الترتيب الأسبوعي") ||
       title.startsWith("🏆 Classement — période de test");
   });
 }
@@ -1261,8 +1261,8 @@ async function publishPrimeTestReport(clientInstance) {
       const embeds = await createWeeklyReportEmbeds(guild, range, {
         title: `🧪 Primes — période de test (${intervalMinutes} min)`,
         rankingTitle: "🏆 Classement — période de test",
-        periodLabel: `Opérations validées entre <t:${startTimestamp}:T> et <t:${endTimestamp}:T>`,
-        footerText: "Ce rapport ne reprend pas les primes déjà affichées lors de la période précédente.",
+        periodLabel: `العمليات المعتمدة بين <t:${startTimestamp}:T> و <t:${endTimestamp}:T>`,
+        footerText: "هذا التقرير لا يعيد احتساب المكافآت التي عُرضت في الفترة السابقة.",
       });
       const messageIds = [];
 
@@ -1273,7 +1273,7 @@ async function publishPrimeTestReport(clientInstance) {
 
       const logsChannel = await getLogsChannel(guild);
       if (logsChannel && logsChannel.id !== channel.id) {
-        await sendReportCopyToLogs(logsChannel, embeds, "Mise à jour automatique des primes");
+        await sendReportCopyToLogs(logsChannel, embeds, "تحديث المكافآت تلقائياً");
       }
 
       weeklyReports[key] = {
@@ -1356,7 +1356,7 @@ async function processWeeklyRollover(clientInstance) {
 
             const logsChannel = await getLogsChannel(guild);
             if (logsChannel && logsChannel.id !== channel.id) {
-              await sendReportCopyToLogs(logsChannel, embeds, "Clôture automatique de la semaine");
+              await sendReportCopyToLogs(logsChannel, embeds, "الإغلاق التلقائي للأسبوع");
             }
 
             // Le premier embed est toujours le résumé : on le conserve définitivement.
@@ -1629,11 +1629,11 @@ function getOperationFromInteraction(interaction) {
 
 async function verifyLeader(interaction, operation) {
   if (!operation) {
-    await respondEphemeral(interaction, "❌ Cette opération est introuvable.");
+    await respondEphemeral(interaction, "❌ هذه العملية غير موجودة.");
     return false;
   }
   if (interaction.user.id !== operation.leaderId) {
-    await respondEphemeral(interaction, "❌ Seul le chef de cette opération peut utiliser ce bouton.");
+    await respondEphemeral(interaction, "❌ قائد هذه العملية فقط يمكنه استخدام هذا الزر.");
     return false;
   }
   return true;
@@ -1641,7 +1641,7 @@ async function verifyLeader(interaction, operation) {
 
 async function verifyPreparation(interaction, operation) {
   if (!["preparation", "correction"].includes(operation.status)) {
-    await respondEphemeral(interaction, "❌ Cette opération ne peut plus être modifiée.");
+    await respondEphemeral(interaction, "❌ لم يعد من الممكن تعديل هذه العملية.");
     return false;
   }
   return true;
@@ -1712,7 +1712,7 @@ async function verifySupervisor(interaction, operation = null) {
   if (!isConfiguredId(config.supervisorRoleId) && !isConfiguredId(CHIEF_ROLE_ID)) {
     await respondEphemeral(
       interaction,
-      "❌ Aucun rôle de validation n’est configuré. Ajoute `SUPERVISOR_ROLE_ID` et/ou `CHIEF_ROLE_ID` dans le fichier `.env`."
+      "❌ لم يتم إعداد أي رتبة للمراجعة. أضف `SUPERVISOR_ROLE_ID` و/أو `CHIEF_ROLE_ID` في ملف `.env`."
     );
     return false;
   }
@@ -1721,7 +1721,7 @@ async function verifySupervisor(interaction, operation = null) {
     console.log("Résultat : REFUSÉ — aucun rôle autorisé détecté.");
     await respondEphemeral(
       interaction,
-      "❌ Seuls les membres ayant le rôle **Operations Controller** ou **Chief of Police** peuvent valider ou refuser ce rapport."
+      "❌ فقط الأعضاء الذين لديهم رتبة **Operations Controller** أو **Chief of Police** يمكنهم قبول أو رفض هذا التقرير."
     );
     return false;
   }
@@ -1842,7 +1842,7 @@ function createMemberSelectionView(operation, guild, requestedPage = 0) {
     return {
       embeds: [
         createOperationEmbed(operation).setDescription(
-          "❌ Aucun autre membre avec le rôle Police n’est disponible."
+          "❌ لا يوجد عضو آخر متاح يحمل رتبة Police."
         ),
       ],
       components: [createOperationButtons(operation.id)],
@@ -1859,14 +1859,14 @@ function createMemberSelectionView(operation, guild, requestedPage = 0) {
 
     const memberSelect = new StringSelectMenuBuilder()
       .setCustomId(`operation_members_select:${operation.id}:${page}:${chunk}`)
-      .setPlaceholder(`Policiers ${globalStart}-${globalEnd} sur ${policeMembers.length}`)
+      .setPlaceholder(`أفراد الشرطة ${globalStart}-${globalEnd} من ${policeMembers.length}`)
       .setMinValues(0)
       .setMaxValues(chunkMembers.length)
       .addOptions(
         chunkMembers.map((member) => ({
           label: member.displayName.slice(0, 100),
           value: member.id,
-          description: `ID Discord : ${member.id}`.slice(0, 100),
+          description: `معرّف Discord: ${member.id}`.slice(0, 100),
           default: (operation.memberIds || []).includes(member.id),
         }))
       );
@@ -1876,27 +1876,27 @@ function createMemberSelectionView(operation, guild, requestedPage = 0) {
 
   const previousButton = new ButtonBuilder()
     .setCustomId(`operation_members_page:${operation.id}:${page - 1}`)
-    .setLabel("Précédent")
+    .setLabel("السابق")
     .setEmoji("⬅️")
     .setStyle(ButtonStyle.Secondary)
     .setDisabled(page === 0);
 
   const nextButton = new ButtonBuilder()
     .setCustomId(`operation_members_page:${operation.id}:${page + 1}`)
-    .setLabel("Suivant")
+    .setLabel("التالي")
     .setEmoji("➡️")
     .setStyle(ButtonStyle.Secondary)
     .setDisabled(page >= totalPages - 1);
 
   const doneButton = new ButtonBuilder()
     .setCustomId(`operation_members_done:${operation.id}`)
-    .setLabel("Terminer")
+    .setLabel("إنهاء")
     .setEmoji("✅")
     .setStyle(ButtonStyle.Success);
 
   const cancelButton = new ButtonBuilder()
     .setCustomId(`operation_members_cancel:${operation.id}`)
-    .setLabel("Annuler")
+    .setLabel("إلغاء")
     .setEmoji("↩️")
     .setStyle(ButtonStyle.Danger);
 
@@ -1908,21 +1908,21 @@ function createMemberSelectionView(operation, guild, requestedPage = 0) {
   const rangeStart = page * membersPerPage + 1;
   const rangeEnd = page * membersPerPage + pageMembers.length;
   const pageText = totalPages > 1
-    ? `Page **${page + 1}/${totalPages}** • policiers **${rangeStart}-${rangeEnd}** sur **${policeMembers.length}**`
-    : `Tous les policiers sont affichés sur cette page : **${policeMembers.length}** disponible(s)`;
+    ? `الصفحة **${page + 1}/${totalPages}** • أفراد الشرطة **${rangeStart}-${rangeEnd}** من **${policeMembers.length}**`
+    : `يتم عرض جميع أفراد الشرطة في هذه الصفحة: **${policeMembers.length}** متاح`;
 
   return {
     embeds: [
       createOperationEmbed(operation).setDescription(
         [
-          "👥 **Sélection des participants**",
+          "👥 **اختيار المشاركين**",
           "",
           pageText,
-          `Sélectionnés au total : **${(operation.memberIds || []).length}**`,
+          `إجمالي المحددين: **${(operation.memberIds || []).length}**`,
           "",
-          "Tu peux sélectionner des policiers dans chacun des menus ci-dessous.",
-          "Clique ensuite sur **Terminer** pour enregistrer la liste complète.",
-          "Le chef d’opération est retiré automatiquement.",
+          "يمكنك اختيار أفراد الشرطة من القوائم أدناه.",
+          "Clique ensuite sur **إنهاء** pour enregistrer la liste complète.",
+          "يتم استبعاد قائد العملية تلقائياً.",
         ].join("\n")
       ),
     ],
@@ -1934,7 +1934,7 @@ function createOperationEmbed(operation) {
   const category = config.rewards[operation.categoryKey];
   const members = operation.memberIds?.length
     ? operation.memberIds.map((id, index) => `${index + 1}. <@${id}>`).join("\n")
-    : "Aucun membre ajouté";
+    : "لم تتم إضافة أي عضو";
   const total = category.leaderBonus + (operation.memberIds?.length || 0) * category.memberBonus;
 
   const operationType = operation.operationKey ? config.operationTypes[operation.operationKey] : null;
@@ -1945,36 +1945,36 @@ function createOperationEmbed(operation) {
     .setColor(getCategoryColor(operation.categoryKey))
     .setTitle(`${operationEmoji} ${operationName} — ${operation.id}`)
     .addFields(
-      { name: "🆔 Numéro", value: `\`${operation.id}\``, inline: true },
-      { name: "📅 Créée le", value: `<t:${Math.floor(operation.createdAt / 1000)}:f>`, inline: true },
-      { name: "🚔 Opération", value: `${operationEmoji} **${operationName}**` },
-      { name: "📂 Catégorie automatique", value: `${category.emoji} ${category.name}` },
-      { name: "👑 Chef d’opération", value: `<@${operation.leaderId}>` },
-      { name: `👥 Membres (${operation.memberIds?.length || 0})`, value: members },
+      { name: "🆔 الرقم", value: `\`${operation.id}\``, inline: true },
+      { name: "📅 تاريخ الإنشاء", value: `<t:${Math.floor(operation.createdAt / 1000)}:f>`, inline: true },
+      { name: "🚔 العملية", value: `${operationEmoji} **${operationName}**` },
+      { name: "📂 الفئة التلقائية", value: `${category.emoji} ${category.name}` },
+      { name: "👑 قائد العملية", value: `<@${operation.leaderId}>` },
+      { name: `👥 المشاركون (${operation.memberIds?.length || 0})`, value: members },
       {
-        name: "📷 Preuve",
-        value: operation.proofUrl ? "✅ Preuve intégrée directement au rapport" : "Aucune preuve ajoutée",
+        name: "📷 الدليل",
+        value: operation.proofUrl ? "✅ تم إدراج الدليل مباشرة في التقرير" : "لم تتم إضافة دليل",
       },
-      { name: "💰 Prime du chef", value: `${formatMoney(category.leaderBonus)} €`, inline: true },
-      { name: "💰 Prime par membre", value: `${formatMoney(category.memberBonus)} €`, inline: true },
-      { name: "💵 Total de l’opération", value: `${formatMoney(total)} €` },
-      { name: "📌 Statut", value: getStatusText(operation) }
+      { name: "💰 مكافأة القائد", value: `${formatMoney(category.leaderBonus)} €`, inline: true },
+      { name: "💰 مكافأة كل عضو", value: `${formatMoney(category.memberBonus)} €`, inline: true },
+      { name: "💵 إجمالي العملية", value: `${formatMoney(total)} €` },
+      { name: "📌 الحالة", value: getStatusText(operation) }
     );
 
   if (operation.status === "rejected" && operation.rejectionReason) {
-    embed.addFields({ name: "📝 Motif du refus", value: operation.rejectionReason.slice(0, 1024) });
+    embed.addFields({ name: "📝 سبب الرفض", value: operation.rejectionReason.slice(0, 1024) });
   }
 
   if (operation.status === "correction" && operation.correctionReason) {
-    embed.addFields({ name: "🟠 Correction demandée", value: operation.correctionReason.slice(0, 1024) });
+    embed.addFields({ name: "🟠 التصحيح المطلوب", value: operation.correctionReason.slice(0, 1024) });
   }
 
   if (operation.duplicateOf) {
-    embed.addFields({ name: "⚠️ Doublon potentiel", value: `Cette preuve ressemble à celle déjà utilisée dans **${operation.duplicateOf}**.` });
+    embed.addFields({ name: "⚠️ احتمال وجود تكرار", value: `هذا الدليل مشابه لدليل استُخدم سابقاً في **${operation.duplicateOf}**.` });
   }
 
   embed
-    .setFooter({ text: operation.status === "preparation" ? "Seul le chef peut modifier ce rapport." : `Rapport ${operation.id}` })
+    .setFooter({ text: operation.status === "preparation" ? "قائد العملية فقط يمكنه تعديل هذا التقرير." : `التقرير ${operation.id}` })
     .setTimestamp(operation.createdAt);
 
   if (operation.proofUrl) embed.setImage(operation.proofUrl);
@@ -1982,21 +1982,21 @@ function createOperationEmbed(operation) {
 }
 
 function createOperationTypeSelect() {
-  const categoryLabels = { minor: "Mineure", medium: "Moyenne", major: "Grande" };
+  const categoryLabels = { minor: "صغرى", medium: "متوسطة", major: "كبرى" };
   const options = Object.entries(config.operationTypes).map(([key, operation]) => {
     const reward = config.rewards[operation.categoryKey];
     return {
       label: operation.name.slice(0, 100),
       value: key,
       emoji: operation.emoji,
-      description: `${categoryLabels[operation.categoryKey]} • Chef ${formatMoney(reward.leaderBonus)} € • Membre ${formatMoney(reward.memberBonus)} €`.slice(0, 100),
+      description: `${categoryLabels[operation.categoryKey]} • القائد ${formatMoney(reward.leaderBonus)} € • العضو ${formatMoney(reward.memberBonus)} €`.slice(0, 100),
     };
   });
 
   return new ActionRowBuilder().addComponents(
     new StringSelectMenuBuilder()
       .setCustomId("operation_type_select")
-      .setPlaceholder("Choisis le nom de l’opération")
+      .setPlaceholder("اختر اسم العملية")
       .setMinValues(1)
       .setMaxValues(1)
       .addOptions(options)
@@ -2005,17 +2005,17 @@ function createOperationTypeSelect() {
 
 function createOperationButtons(operationId) {
   return new ActionRowBuilder().addComponents(
-    new ButtonBuilder().setCustomId(`operation_add_members:${operationId}`).setLabel("Ajouter des policiers").setEmoji("➕").setStyle(ButtonStyle.Primary),
-    new ButtonBuilder().setCustomId(`operation_add_proof:${operationId}`).setLabel("Ajouter une preuve").setEmoji("📷").setStyle(ButtonStyle.Secondary),
-    new ButtonBuilder().setCustomId(`operation_submit:${operationId}`).setLabel("Soumettre").setEmoji("📤").setStyle(ButtonStyle.Success)
+    new ButtonBuilder().setCustomId(`operation_add_members:${operationId}`).setLabel("إضافة أفراد الشرطة").setEmoji("➕").setStyle(ButtonStyle.Primary),
+    new ButtonBuilder().setCustomId(`operation_add_proof:${operationId}`).setLabel("إضافة دليل").setEmoji("📷").setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId(`operation_submit:${operationId}`).setLabel("إرسال").setEmoji("📤").setStyle(ButtonStyle.Success)
   );
 }
 
 function createReviewButtons(operationId) {
   return new ActionRowBuilder().addComponents(
-    new ButtonBuilder().setCustomId(`operation_approve:${operationId}`).setLabel("Valider").setEmoji("✅").setStyle(ButtonStyle.Success),
-    new ButtonBuilder().setCustomId(`operation_correction:${operationId}`).setLabel("Correction").setEmoji("🟠").setStyle(ButtonStyle.Secondary),
-    new ButtonBuilder().setCustomId(`operation_reject:${operationId}`).setLabel("Refuser").setEmoji("❌").setStyle(ButtonStyle.Danger)
+    new ButtonBuilder().setCustomId(`operation_approve:${operationId}`).setLabel("قبول").setEmoji("✅").setStyle(ButtonStyle.Success),
+    new ButtonBuilder().setCustomId(`operation_correction:${operationId}`).setLabel("تصحيح").setEmoji("🟠").setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId(`operation_reject:${operationId}`).setLabel("رفض").setEmoji("❌").setStyle(ButtonStyle.Danger)
   );
 }
 
@@ -2035,27 +2035,27 @@ async function notifyLeader(guild, operation, approved) {
   if (!recipient) return;
 
   const text = approved
-    ? `✅ Ton rapport **${operation.id}** a été validé. La prime est comptabilisée.`
-    : `❌ Ton rapport **${operation.id}** a été refusé.\n\n📝 **Motif du refus :**\n${operation.rejectionReason || "Non précisé"}${operation.reviewedBy ? `\n\n👮 Refusé par : <@${operation.reviewedBy}>` : ""}`;
+    ? `✅ تم قبول تقريرك **${operation.id}** وتم احتساب المكافأة.`
+    : `❌ تم رفض تقريرك **${operation.id}**.\n\n📝 **سبب الرفض :**\n${operation.rejectionReason || "غير محدد"}${operation.reviewedBy ? `\n\n👮 تم الرفض بواسطة: <@${operation.reviewedBy}>` : ""}`;
 
   await recipient.send({ content: text }).catch((error) => {
     console.warn(`[DM] Impossible d'envoyer la décision ${operation.id} à ${operation.leaderId}:`, error?.message || error);
   });
 }
 
-async function notifyCorrection(guild, operation) {
+async function notifyتصحيح(guild, operation) {
   const member = await guild.members.fetch(operation.leaderId).catch(() => null);
   const recipient = member?.user || await client.users.fetch(operation.leaderId).catch(() => null);
   if (!recipient) return;
 
   const text = [
-    `🟠 Une correction est demandée pour ton rapport **${operation.id}**.`,
+    `🟠 طُلب تصحيح لتقريرك **${operation.id}**.`,
     "",
-    "📝 **À corriger :**",
-    operation.correctionReason || "Non précisé",
-    operation.reviewedBy ? `\n👮 Demandée par : <@${operation.reviewedBy}>` : "",
+    "📝 **المطلوب تصحيحه:**",
+    operation.correctionReason || "غير محدد",
+    operation.reviewedBy ? `\n👮 طلبه: <@${operation.reviewedBy}>` : "",
     "",
-    "Tu peux modifier le même rapport puis cliquer de nouveau sur **Soumettre**.",
+    "يمكنك تعديل نفس التقرير ثم الضغط على **إرسال** مرة أخرى.",
   ].join("\n");
 
   await recipient.send({ content: text }).catch((error) => {
@@ -2068,25 +2068,25 @@ async function sendReviewLog(guild, operation, action) {
   if (!channel?.isTextBased()) return;
 
   const labels = {
-    approved: ["✅ Rapport validé", 0x57f287],
-    rejected: ["❌ Rapport refusé", 0xed4245],
-    correction: ["🟠 Correction demandée", 0xfee75c],
+    approved: ["✅ تقرير مقبول", 0x57f287],
+    rejected: ["❌ تقرير مرفوض", 0xed4245],
+    correction: ["🟠 التصحيح المطلوب", 0xfee75c],
   };
-  const [title, color] = labels[action] || ["📋 Rapport traité", 0x5865f2];
+  const [title, color] = labels[action] || ["📋 تمت معالجة التقرير", 0x5865f2];
   const embed = new EmbedBuilder()
     .setColor(color)
     .setTitle(`${title} — ${operation.id}`)
     .addFields(
-      { name: "👑 Chef", value: `<@${operation.leaderId}>`, inline: true },
-      { name: "👮 Contrôleur", value: operation.reviewedBy ? `<@${operation.reviewedBy}>` : "Inconnu", inline: true },
-      { name: "🚔 Opération", value: operation.operationName || operation.operationKey || "Inconnue" }
+      { name: "👑 القائد", value: `<@${operation.leaderId}>`, inline: true },
+      { name: "👮 المراجع", value: operation.reviewedBy ? `<@${operation.reviewedBy}>` : "غير معروف", inline: true },
+      { name: "🚔 العملية", value: operation.operationName || operation.operationKey || "غير معروفe" }
     )
     .setTimestamp(operation.reviewedAt || Date.now());
   if (action === "rejected" && operation.rejectionReason) {
-    embed.addFields({ name: "📝 Motif du refus", value: operation.rejectionReason.slice(0, 1024) });
+    embed.addFields({ name: "📝 سبب الرفض", value: operation.rejectionReason.slice(0, 1024) });
   }
   if (action === "correction" && operation.correctionReason) {
-    embed.addFields({ name: "📝 Correction demandée", value: operation.correctionReason.slice(0, 1024) });
+    embed.addFields({ name: "📝 التصحيح المطلوب", value: operation.correctionReason.slice(0, 1024) });
   }
   await channel.send({ embeds: [embed] }).catch(() => {});
 }
@@ -2105,7 +2105,7 @@ function findRecentDuplicateProof(currentOperation) {
 
 async function handleControllerStatsCommand(interaction) {
   if (!(await canReviewOperations(interaction))) {
-    await interaction.reply({ content: "❌ Cette commande est réservée aux responsables de validation.", flags: MessageFlags.Ephemeral });
+    await interaction.reply({ content: "❌ هذا الأمر مخصص لمسؤولي المراجعة فقط.", flags: MessageFlags.Ephemeral });
     scheduleEphemeralDelete(interaction);
     return;
   }
@@ -2134,22 +2134,22 @@ async function handleControllerStatsCommand(interaction) {
     .slice(0, 20);
 
   const description = rows.length
-    ? rows.map((x, i) => `**${i + 1}.** <@${x.userId}> — **${x.total}** traité(s)\n└ ✅ ${x.approved} • ❌ ${x.rejected} • 🟠 ${x.correction}`).join("\n\n")
-    : "Aucune validation enregistrée cette semaine.";
+    ? rows.map((x, i) => `**${i + 1}.** <@${x.userId}> — **${x.total}** تمت معالجته\n└ ✅ ${x.approved} • ❌ ${x.rejected} • 🟠 ${x.correction}`).join("\n\n")
+    : "لا توجد مراجعات مسجلة هذا الأسبوع.";
 
   await interaction.reply({
-    embeds: [new EmbedBuilder().setColor(0x5865f2).setTitle("👮 Statistiques des contrôleurs — semaine").setDescription(description).setTimestamp()],
+    embeds: [new EmbedBuilder().setColor(0x5865f2).setTitle("👮 إحصائيات المراجعين — هذا الأسبوع").setDescription(description).setTimestamp()],
     flags: MessageFlags.Ephemeral,
   });
   scheduleEphemeralDelete(interaction);
 }
 
 function getStatusText(operation) {
-  if (operation.status === "pending") return "🟠 En attente de validation";
-  if (operation.status === "approved") return operation.reviewedBy ? `✅ Validée par <@${operation.reviewedBy}>` : "✅ Validée";
-  if (operation.status === "rejected") return operation.reviewedBy ? `❌ Refusée par <@${operation.reviewedBy}>` : "❌ Refusée";
-  if (operation.status === "correction") return operation.reviewedBy ? `🟠 Correction demandée par <@${operation.reviewedBy}>` : "🟠 Correction demandée";
-  return "🟡 En préparation";
+  if (operation.status === "pending") return "🟠 بانتظار المراجعة";
+  if (operation.status === "approved") return operation.reviewedBy ? `✅ تم القبول بواسطة <@${operation.reviewedBy}>` : "✅ مقبول";
+  if (operation.status === "rejected") return operation.reviewedBy ? `❌ تم الرفض بواسطة <@${operation.reviewedBy}>` : "❌ مرفوض";
+  if (operation.status === "correction") return operation.reviewedBy ? `🟠 تم طلب التصحيح بواسطة <@${operation.reviewedBy}>` : "🟠 التصحيح المطلوب";
+  return "🟡 قيد الإعداد";
 }
 
 function createOperationId() {
