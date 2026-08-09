@@ -46,6 +46,7 @@ const REPORTS_FILE = path.join(__dirname, "data", "weekly-reports.json");
 const OFFICER_RESETS_FILE = path.join(__dirname, "data", "officer-resets.json");
 const operations = new Map();
 const pendingProofs = new Map();
+const operationReviewLocks = new Set();
 let weeklyReports = {};
 let officerResets = {};
 
@@ -175,27 +176,35 @@ client.on(Events.InteractionCreate, async (interaction) => {
         return;
       }
 
-      operation.status = "correction";
-      operation.reviewedBy = interaction.user.id;
-      operation.reviewedAt = Date.now();
-      operation.correctionReason = reason;
-      operation.correctionRequestedAt = Date.now();
-      operation.reviewHistory = Array.isArray(operation.reviewHistory) ? operation.reviewHistory : [];
-      operation.reviewHistory.push({ action: "correction", userId: interaction.user.id, at: operation.reviewedAt, reason });
-      operations.set(operation.id, operation);
-      saveOperations();
+      await withOperationReviewLock(operation.id, interaction, async () => {
+        const current = operations.get(operation.id);
+        if (!current || current.status !== "pending") {
+          await respondEphemeral(interaction, "❌ تمت معالجة هذا التقرير بالفعل بواسطة مراجع آخر.");
+          return;
+        }
 
-      const channelId = operation.reviewChannelId || operation.reportChannelId;
-      const messageId = operation.reviewMessageId || operation.reportMessageId;
-      const channel = await interaction.guild.channels.fetch(channelId).catch(() => null);
-      const message = channel?.isTextBased() ? await channel.messages.fetch(messageId).catch(() => null) : null;
-      if (message) {
-        await message.edit({ embeds: [createOperationEmbed(operation)], components: [createOperationButtons(operation.id)] }).catch(() => {});
-      }
+        current.status = "correction";
+        current.reviewedBy = interaction.user.id;
+        current.reviewedAt = Date.now();
+        current.correctionReason = reason;
+        current.correctionRequestedAt = Date.now();
+        current.reviewHistory = Array.isArray(current.reviewHistory) ? current.reviewHistory : [];
+        current.reviewHistory.push({ action: "correction", userId: interaction.user.id, at: current.reviewedAt, reason });
+        operations.set(current.id, current);
+        await saveOperations();
 
-      await notifyتصحيح(interaction.guild, operation);
-      await sendReviewLog(interaction.guild, operation, "correction");
-      await respondEphemeral(interaction, `🟠 تم طلب تصحيح للتقرير **${operation.id}**.`);
+        const channelId = current.reviewChannelId || current.reportChannelId;
+        const messageId = current.reviewMessageId || current.reportMessageId;
+        const channel = await interaction.guild.channels.fetch(channelId).catch(() => null);
+        const message = channel?.isTextBased() ? await channel.messages.fetch(messageId).catch(() => null) : null;
+        if (message) {
+          await message.edit({ embeds: [createOperationEmbed(current)], components: [createOperationButtons(current.id)] }).catch(() => {});
+        }
+
+        await notifyتصحيح(interaction.guild, current);
+        await sendReviewLog(interaction.guild, current, "correction");
+        await respondEphemeral(interaction, `🟠 تم طلب تصحيح للتقرير **${current.id}**.`);
+      });
       return;
     }
 
@@ -216,26 +225,34 @@ client.on(Events.InteractionCreate, async (interaction) => {
         return;
       }
 
-      operation.status = "rejected";
-      operation.reviewedBy = interaction.user.id;
-      operation.reviewedAt = Date.now();
-      operation.rejectionReason = reason;
-      operation.reviewHistory = Array.isArray(operation.reviewHistory) ? operation.reviewHistory : [];
-      operation.reviewHistory.push({ action: "rejected", userId: interaction.user.id, at: operation.reviewedAt, reason });
-      operations.set(operation.id, operation);
-      saveOperations();
+      await withOperationReviewLock(operation.id, interaction, async () => {
+        const current = operations.get(operation.id);
+        if (!current || current.status !== "pending") {
+          await respondEphemeral(interaction, "❌ تمت معالجة هذا التقرير بالفعل بواسطة مراجع آخر.");
+          return;
+        }
 
-      const channelId = operation.reviewChannelId || operation.reportChannelId;
-      const messageId = operation.reviewMessageId || operation.reportMessageId;
-      const channel = await interaction.guild.channels.fetch(channelId).catch(() => null);
-      const message = channel?.isTextBased() ? await channel.messages.fetch(messageId).catch(() => null) : null;
-      if (message) {
-        await message.edit({ embeds: [createOperationEmbed(operation)], components: [] }).catch(() => {});
-      }
+        current.status = "rejected";
+        current.reviewedBy = interaction.user.id;
+        current.reviewedAt = Date.now();
+        current.rejectionReason = reason;
+        current.reviewHistory = Array.isArray(current.reviewHistory) ? current.reviewHistory : [];
+        current.reviewHistory.push({ action: "rejected", userId: interaction.user.id, at: current.reviewedAt, reason });
+        operations.set(current.id, current);
+        await saveOperations();
 
-      await notifyLeader(interaction.guild, operation, false);
-      await sendReviewLog(interaction.guild, operation, "rejected");
-      await respondEphemeral(interaction, `❌ تم رفض التقرير **${operation.id}**. السبب: **${reason}**`);
+        const channelId = current.reviewChannelId || current.reportChannelId;
+        const messageId = current.reviewMessageId || current.reportMessageId;
+        const channel = await interaction.guild.channels.fetch(channelId).catch(() => null);
+        const message = channel?.isTextBased() ? await channel.messages.fetch(messageId).catch(() => null) : null;
+        if (message) {
+          await message.edit({ embeds: [createOperationEmbed(current)], components: [] }).catch(() => {});
+        }
+
+        await notifyLeader(interaction.guild, current, false);
+        await sendReviewLog(interaction.guild, current, "rejected");
+        await respondEphemeral(interaction, `❌ تم رفض التقرير **${current.id}**. السبب: **${reason}**`);
+      });
       return;
     }
 
@@ -564,9 +581,10 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
       // Petite notification temporaire pour prévenir les rôles autorisés,
       // sans laisser un deuxième rapport dans le salon.
-      const reviewRoleIds = isConfiguredId(config.supervisorRoleId)
-        ? [config.supervisorRoleId]
-        : [];
+      const reviewRoleIds = [...new Set([
+        isConfiguredId(config.supervisorRoleId) ? config.supervisorRoleId : null,
+        isConfiguredId(CHIEF_ROLE_ID) ? CHIEF_ROLE_ID : null,
+      ].filter(Boolean))];
 
       if (reviewRoleIds.length > 0) {
         const roleMentions = reviewRoleIds.map((roleId) => `<@&${roleId}>`).join(" ");
@@ -632,21 +650,29 @@ client.on(Events.InteractionCreate, async (interaction) => {
         return;
       }
 
-      operation.status = "approved";
-      operation.reviewedBy = interaction.user.id;
-      operation.reviewedAt = Date.now();
-      operation.reviewHistory = Array.isArray(operation.reviewHistory) ? operation.reviewHistory : [];
-      operation.reviewHistory.push({ action: "approved", userId: interaction.user.id, at: operation.reviewedAt });
-      operations.set(operation.id, operation);
-      saveOperations();
+      await withOperationReviewLock(operation.id, interaction, async () => {
+        const current = operations.get(operation.id);
+        if (!current || current.status !== "pending") {
+          await respondEphemeral(interaction, "❌ تمت معالجة هذا التقرير بالفعل بواسطة مراجع آخر.");
+          return;
+        }
 
-      await interaction.editReply({
-        content: null,
-        embeds: [createOperationEmbed(operation)],
-        components: [],
+        current.status = "approved";
+        current.reviewedBy = interaction.user.id;
+        current.reviewedAt = Date.now();
+        current.reviewHistory = Array.isArray(current.reviewHistory) ? current.reviewHistory : [];
+        current.reviewHistory.push({ action: "approved", userId: interaction.user.id, at: current.reviewedAt });
+        operations.set(current.id, current);
+        await saveOperations();
+
+        await interaction.editReply({
+          content: null,
+          embeds: [createOperationEmbed(current)],
+          components: [],
+        });
+        await notifyLeader(interaction.guild, current, true);
+        await sendReviewLog(interaction.guild, current, "approved");
       });
-      await notifyLeader(interaction.guild, operation, true);
-      await sendReviewLog(interaction.guild, operation, "approved");
       return;
     }
 
@@ -712,8 +738,10 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
   } catch (error) {
     console.error("❌ Erreur pendant une interaction :", error);
+    const errorRef = crypto.randomBytes(3).toString("hex").toUpperCase();
+    console.error(`[ERROR ${errorRef}]`, error?.stack || error);
     const response = {
-      content: "❌ حدث خطأ أثناء استخدام البوت.",
+      content: `❌ حدث خطأ أثناء استخدام البوت. رمز الخطأ: **${errorRef}**`,
       flags: MessageFlags.Ephemeral,
     };
 
@@ -1618,7 +1646,21 @@ async function loadOperations() {
 }
 
 function saveOperations() {
-  storage.saveState("operations", [...operations.values()], DATA_FILE);
+  return storage.saveState("operations", [...operations.values()], DATA_FILE);
+}
+
+async function withOperationReviewLock(operationId, interaction, handler) {
+  if (operationReviewLocks.has(operationId)) {
+    await respondEphemeral(interaction, "⏳ هذا التقرير قيد المعالجة حالياً بواسطة مراجع آخر. حاول مرة أخرى بعد لحظة.");
+    return false;
+  }
+
+  operationReviewLocks.add(operationId);
+  try {
+    return await handler();
+  } finally {
+    operationReviewLocks.delete(operationId);
+  }
 }
 
 const TEMP_MESSAGE_TTL_MS = 30 * 1000;
@@ -1775,17 +1817,17 @@ async function verifySupervisor(interaction, operation = null) {
     return false;
   }
 
-  if (operation && (operation.leaderId === interaction.user.id || (operation.memberIds || []).includes(interaction.user.id))) {
-    console.log("Résultat : REFUSÉ — auto-validation interdite.");
-    await respondEphemeral(
-      interaction,
-      "🚫 لا يمكنك مراجعة أو قبول أو رفض تقرير عملية كنت قائداً أو مشاركاً فيها."
-    );
-    return false;
-  }
+  // Un Operations Controller / Chief of Police garde son droit de revue même
+  // lorsqu’il est chef ou participant de l’opération. La décision reste tracée
+  // dans reviewedBy + reviewHistory pour conserver un audit complet.
+  const isSelfReview = Boolean(
+    operation &&
+    (operation.leaderId === interaction.user.id ||
+      (operation.memberIds || []).includes(interaction.user.id))
+  );
 
   console.log(
-    `Résultat : AUTORISÉ — ${isChief ? "Chief of Police" : "Operations Controller"} détecté.`
+    `Résultat : AUTORISÉ — ${isChief ? "Chief of Police" : "Operations Controller"} détecté${isSelfReview ? " (auto-validation autorisée et tracée)" : ""}.`
   );
   return true;
 }
@@ -2144,13 +2186,19 @@ async function sendReviewLog(guild, operation, action) {
     correction: ["🟠 التصحيح المطلوب", 0xfee75c],
   };
   const [title, color] = labels[action] || ["📋 تمت معالجة التقرير", 0x5865f2];
+  const isSelfReview = Boolean(
+    operation.reviewedBy &&
+    (operation.reviewedBy === operation.leaderId || (operation.memberIds || []).includes(operation.reviewedBy))
+  );
+
   const embed = new EmbedBuilder()
     .setColor(color)
     .setTitle(`${title} — ${operation.id}`)
     .addFields(
       { name: "👑 القائد", value: `<@${operation.leaderId}>`, inline: true },
       { name: "👮 المراجع", value: operation.reviewedBy ? `<@${operation.reviewedBy}>` : "غير معروف", inline: true },
-      { name: "🚔 العملية", value: operation.operationName || operation.operationKey || "غير معروفe" }
+      { name: "🔐 نوع المراجعة", value: isSelfReview ? "⚠️ مراجعة ذاتية بصلاحية مشرف" : "✅ مراجعة عادية", inline: true },
+      { name: "🚔 العملية", value: operation.operationName || operation.operationKey || "غير معروف" }
     )
     .setTimestamp(operation.reviewedAt || Date.now());
   if (action === "rejected" && operation.rejectionReason) {
