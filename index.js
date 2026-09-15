@@ -128,8 +128,12 @@ client.once(Events.ClientReady, async (readyClient) => {
 
   await displayConfigurationStatus(readyClient);
 
+  // Ne bloque pas le démarrage du bot sur un fetch global des membres.
+  // Discord peut limiter cette requête sur les gros serveurs ; on charge en arrière-plan.
   for (const guild of readyClient.guilds.cache.values()) {
-    await ensureGuildMembersLoaded(guild);
+    ensureGuildMembersLoaded(guild).catch((error) => {
+      console.warn(`⚠️ Préchargement membres ignoré pour ${guild.name}: ${error.message}`);
+    });
   }
 
   readyClient.user.setActivity("عمليات الشرطة");
@@ -151,6 +155,18 @@ client.on(Events.GuildMemberRemove, (member) => {
 
 client.on(Events.InteractionCreate, async (interaction) => {
   try {
+    // ACK de /operation AVANT toute autre logique. Discord ferme une interaction
+    // qui n'est pas acquittée rapidement ; ceci évite « L’application ne répond plus »
+    // même lors d’un réveil Render ou d’une latence Discord/Neon.
+    if (
+      interaction.isChatInputCommand() &&
+      interaction.commandName === "operation" &&
+      !interaction.deferred &&
+      !interaction.replied
+    ) {
+      await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+    }
+
     const interactionName = interaction.isChatInputCommand()
       ? `/${interaction.commandName}`
       : interaction.customId || interaction.type;
@@ -256,11 +272,9 @@ client.on(Events.InteractionCreate, async (interaction) => {
       return;
     }
 
-    // Discord exige une première réponse en moins de 3 secondes.
-    // On confirme immédiatement tous les boutons et menus, puis on modifie le message.
-    if (interaction.isMessageComponent() && !interaction.deferred && !interaction.replied && !interaction.customId?.startsWith("operation_reject:") && !interaction.customId?.startsWith("operation_correction:")) {
-      await interaction.deferUpdate();
-    }
+    // Ne pas deferUpdate() globalement ici : plusieurs boutons utilisent update()
+    // ou showModal(). Un ACK global les faisait échouer avec InteractionAlreadyReplied.
+    // Chaque handler acquitte son interaction avec la méthode adaptée.
     if (interaction.isChatInputCommand()) {
       if (interaction.commandName === "operation") {
         await handleOperationCommand(interaction);

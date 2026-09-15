@@ -1,6 +1,6 @@
 {
   "name": "police-operation-bot",
-  "version": "2.0.1",
+  "version": "2.0.3",
   "description": "Bot Discord premium de gestion et validation des opérations de police",
   "main": "index.js",
   "scripts": {
