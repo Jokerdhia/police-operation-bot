@@ -16,10 +16,30 @@ async function initializeStorage() {
     return;
   }
 
+  // pg 8.x avertit que sslmode=require changera de sémantique dans pg 9.
+  // On demande explicitement la vérification complète pour Neon.
+  let connectionString = databaseUrl;
+  if (!databaseUrl.includes("localhost")) {
+    try {
+      const url = new URL(databaseUrl);
+      if (["require", "prefer", "verify-ca"].includes(url.searchParams.get("sslmode"))) {
+        url.searchParams.set("sslmode", "verify-full");
+      }
+      connectionString = url.toString();
+    } catch (error) {
+      console.warn("⚠️ DATABASE_URL non standard, utilisation sans normalisation SSL.");
+    }
+  }
+
   pool = new Pool({
-    connectionString: databaseUrl,
-    ssl: databaseUrl.includes("localhost") ? false : { rejectUnauthorized: false },
+    connectionString,
     max: 5,
+    idleTimeoutMillis: 30_000,
+    connectionTimeoutMillis: 10_000,
+  });
+
+  pool.on("error", (error) => {
+    console.error("❌ Erreur PostgreSQL inattendue :", error.message);
   });
 
   await pool.query(`

@@ -1,4 +1,4 @@
-require("dotenv").config();
+require("dotenv").config({ quiet: true });
 
 function numberFromEnv(name, fallback) {
   const value = Number(process.env[name]);

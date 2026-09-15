@@ -1,4 +1,4 @@
-require("dotenv").config();
+require("dotenv").config({ quiet: true });
 process.env.TZ = process.env.REPORT_TIMEZONE || "Europe/Brussels";
 
 const path = require("path");
@@ -621,6 +621,60 @@ client.on(Events.InteractionCreate, async (interaction) => {
       return;
     }
 
+    // Le créateur peut rouvrir lui-même un rapport encore en attente s'il remarque une erreur.
+    // Une fois accepté ou refusé, le rapport reste verrouillé pour préserver la validation.
+    if (
+      interaction.isButton() &&
+      interaction.customId.startsWith("operation_self_reopen:")
+    ) {
+      const operation = getOperationFromInteraction(interaction);
+      if (!(await verifyLeader(interaction, operation))) return;
+
+      if (!operation || operation.status !== "pending") {
+        await respondEphemeral(
+          interaction,
+          "❌ لا يمكن إعادة فتح هذا التقرير. يمكن تعديله فقط عندما يكون بانتظار المراجعة."
+        );
+        return;
+      }
+
+      await withOperationReviewLock(operation.id, interaction, async () => {
+        const current = operations.get(operation.id);
+        if (!current || current.status !== "pending") {
+          await respondEphemeral(interaction, "❌ تمت معالجة التقرير بالفعل ولا يمكن إعادة فتحه.");
+          return;
+        }
+
+        current.status = "preparation";
+        current.reopenedByLeaderAt = Date.now();
+        current.reviewHistory = Array.isArray(current.reviewHistory) ? current.reviewHistory : [];
+        current.reviewHistory.push({
+          action: "self_reopen",
+          userId: interaction.user.id,
+          at: current.reopenedByLeaderAt,
+        });
+        operations.set(current.id, current);
+        await saveOperations();
+
+        // Annule toute attente de preuve précédente puis remet les boutons d'édition.
+        pendingProofs.delete(`${interaction.guildId}:${interaction.channelId}:${interaction.user.id}`);
+        await interaction.update({
+          content: null,
+          embeds: [createOperationEmbed(current)],
+          components: [createOperationButtons(current.id)],
+        });
+
+        const notice = await interaction.followUp({
+          content: "✏️ تم إعادة فتح تقريرك. يمكنك الآن تصحيح الأفراد أو الدليل ثم الضغط على **إرسال** من جديد.",
+          flags: MessageFlags.Ephemeral,
+        }).catch(() => null);
+        if (notice?.id) {
+          setTimeout(() => interaction.webhook.deleteMessage(notice.id).catch(() => {}), TEMP_MESSAGE_TTL_MS);
+        }
+      });
+      return;
+    }
+
     if (
       interaction.isButton() &&
       interaction.customId.startsWith("operation_check:")
@@ -745,7 +799,9 @@ client.on(Events.InteractionCreate, async (interaction) => {
       flags: MessageFlags.Ephemeral,
     };
 
-    if (interaction.replied || interaction.deferred) {
+    if (interaction.deferred && interaction.isChatInputCommand()) {
+      await interaction.editReply({ content: response.content, embeds: [], components: [] }).catch(() => {});
+    } else if (interaction.replied || interaction.deferred) {
       await interaction.followUp(response).catch(() => {});
     } else {
       await interaction.reply(response).catch(() => {});
@@ -888,11 +944,20 @@ client.on(Events.MessageCreate, async (message) => {
 });
 
 async function handleOperationCommand(interaction) {
+  // ACK immédiat : les appels Discord (fetch membre) peuvent dépasser la limite
+  // de 3 secondes, surtout après un réveil Render. Sans deferReply, Discord
+  // affiche « L’application ne répond plus » même si le bot termine ensuite.
+  if (!interaction.deferred && !interaction.replied) {
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+  }
+
   if (!(await hasPoliceRole(interaction.guild, interaction.user.id))) {
-    await interaction.reply({
+    await interaction.editReply({
       content: "❌ يجب أن تكون لديك رتبة Police لإنشاء عملية.",
-      flags: MessageFlags.Ephemeral,
+      embeds: [],
+      components: [],
     });
+    scheduleEphemeralDelete(interaction);
     return;
   }
 
@@ -912,7 +977,7 @@ async function handleOperationCommand(interaction) {
     )
     .setFooter({ text: "ستصبح تلقائياً قائد العملية." });
 
-  await interaction.reply({ embeds: [embed], components: [createOperationTypeSelect()], flags: MessageFlags.Ephemeral });
+  await interaction.editReply({ embeds: [embed], components: [createOperationTypeSelect()] });
 }
 
 async function handlePrimeCommand(interaction) {
@@ -1592,7 +1657,14 @@ function startOfficerResetScheduler(clientInstance) {
 
 async function hasPoliceRole(guild, userId) {
   if (!guild || !isConfiguredId(config.policeRoleId)) return false;
-  const member = await guild.members.fetch(userId).catch(() => null);
+
+  const cachedMember = guild.members.cache.get(userId);
+  if (cachedMember) return cachedMember.roles.cache.has(config.policeRoleId);
+
+  const member = await guild.members.fetch(userId).catch((error) => {
+    console.warn(`⚠️ Impossible de vérifier le rôle Police pour ${userId}: ${error.message}`);
+    return null;
+  });
   return Boolean(member?.roles.cache.has(config.policeRoleId));
 }
 
@@ -2128,7 +2200,8 @@ function createReviewButtons(operationId) {
     new ButtonBuilder().setCustomId(`operation_check:${operationId}`).setLabel("فحص").setEmoji("🔎").setStyle(ButtonStyle.Primary),
     new ButtonBuilder().setCustomId(`operation_approve:${operationId}`).setLabel("قبول").setEmoji("✅").setStyle(ButtonStyle.Success),
     new ButtonBuilder().setCustomId(`operation_correction:${operationId}`).setLabel("تصحيح").setEmoji("🟠").setStyle(ButtonStyle.Secondary),
-    new ButtonBuilder().setCustomId(`operation_reject:${operationId}`).setLabel("رفض").setEmoji("❌").setStyle(ButtonStyle.Danger)
+    new ButtonBuilder().setCustomId(`operation_reject:${operationId}`).setLabel("رفض").setEmoji("❌").setStyle(ButtonStyle.Danger),
+    new ButtonBuilder().setCustomId(`operation_self_reopen:${operationId}`).setLabel("تعديل تقريري").setEmoji("✏️").setStyle(ButtonStyle.Secondary)
   );
 }
 
