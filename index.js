@@ -345,7 +345,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
       operation.reportChannelId = reportMessage.channelId;
       operation.reportMessageId = reportMessage.id;
       operations.set(operation.id, operation);
-      saveOperations();
+      await saveOperations();
 
       await interaction.editReply({
         content: `✅ تم إنشاء التقرير **${operation.id}** في هذه القناة.`,
@@ -444,7 +444,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
       );
       operation.memberIds = [...new Set([...preservedIds, ...selectedIds])];
       operations.set(operation.id, operation);
-      saveOperations();
+      await saveOperations();
 
       await interaction.editReply(
         createMemberSelectionView(operation, interaction.guild, page)
@@ -585,7 +585,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
       operation.reviewChannelId = interaction.channelId;
       operation.reviewMessageId = interaction.message.id;
       operations.set(operation.id, operation);
-      saveOperations();
+      await saveOperations();
 
       await interaction.editReply({
         content: null,
@@ -893,6 +893,15 @@ client.on(Events.MessageCreate, async (message) => {
       return;
     }
 
+    const MAX_PROOF_BYTES = 10 * 1024 * 1024;
+    if (Number(attachment.size || 0) > MAX_PROOF_BYTES) {
+      await message.reply({
+        content: "❌ حجم الصورة كبير جداً. الحد الأقصى هو **10 MB**.",
+        allowedMentions: { repliedUser: false },
+      });
+      return;
+    }
+
     const response = await fetch(attachment.url);
     if (!response.ok) {
       await message.reply({
@@ -948,7 +957,7 @@ client.on(Events.MessageCreate, async (message) => {
 
     operations.set(operation.id, operation);
     pendingProofs.delete(proofKey);
-    saveOperations();
+    await saveOperations();
 
     // Supprime la capture envoyée par le policier : elle reste uniquement dans l’embed du bot.
     await message.delete().catch(() => {});
@@ -1541,7 +1550,7 @@ async function processWeeklyRollover(clientInstance) {
               messageIds: rankingMessageIds,
               updatedAt: Date.now(),
             };
-            saveWeeklyReports();
+            await saveWeeklyReports();
           } catch (error) {
             console.error(`❌ Impossible de publier le rapport final sur ${guild.name} :`, error.message);
           }
@@ -1555,7 +1564,7 @@ async function processWeeklyRollover(clientInstance) {
           messageIds: reportMessageIds,
           resetAt: Date.now(),
         };
-        saveWeeklyReports();
+        await saveWeeklyReports();
       }
 
       // Conserve les messages d'opération dans Discord comme historique.
@@ -1565,7 +1574,7 @@ async function processWeeklyRollover(clientInstance) {
         operations.delete(operation.id);
       }
 
-      saveOperations();
+      await saveOperations();
       console.log(
         `📅 Nouvelle semaine sur ${guild.name} : ${oldOperations.length} ancienne(s) opération(s) retirée(s) du calcul, messages conservés, primes remises à zéro.`
       );
@@ -1687,7 +1696,11 @@ async function hasPoliceRole(guild, userId) {
 
 async function getActivePoliceUserIds(guild) {
   if (!guild || !isConfiguredId(config.policeRoleId)) return new Set();
-  // Évite une récupération globale des membres, fortement limitée par Discord.
+
+  // Les classements/rapports doivent être exacts : on tente de rafraîchir le cache
+  // avant de compter les policiers. En cas de rate-limit Discord, on garde le cache
+  // disponible plutôt que de faire échouer toute la commande.
+  await ensureGuildMembersLoaded(guild).catch(() => false);
   const members = guild.members.cache;
   return new Set(
     members
@@ -1798,7 +1811,7 @@ async function cleanupAbandonedOperation(operationId) {
   }
   pendingProofs.delete(`${operation.guildId}:${operation.reportChannelId}:${operation.leaderId}`);
   operations.delete(operationId);
-  saveOperations();
+  await saveOperations();
   console.log(`🧹 Rapport abandonné ${operationId} supprimé automatiquement après 5 minutes.`);
 }
 
@@ -2609,6 +2622,14 @@ async function shutdown(signal) {
   await storage.closeStorage().catch(() => {});
   process.exit(0);
 }
+
+process.on("unhandledRejection", (error) => {
+  console.error("❌ Promesse non gérée :", error);
+});
+
+process.on("uncaughtException", (error) => {
+  console.error("❌ Exception non gérée :", error);
+});
 
 process.once("SIGTERM", () => shutdown("SIGTERM"));
 process.once("SIGINT", () => shutdown("SIGINT"));
