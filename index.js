@@ -155,12 +155,12 @@ client.on(Events.GuildMemberRemove, (member) => {
 
 client.on(Events.InteractionCreate, async (interaction) => {
   try {
-    // ACK de /operation AVANT toute autre logique. Discord ferme une interaction
+    // ACK de /op AVANT toute autre logique. Discord ferme une interaction
     // qui n'est pas acquittée rapidement ; ceci évite « L’application ne répond plus »
     // même lors d’un réveil Render ou d’une latence Discord/Neon.
     if (
       interaction.isChatInputCommand() &&
-      interaction.commandName === "operation" &&
+      interaction.commandName === "op" &&
       !interaction.deferred &&
       !interaction.replied
     ) {
@@ -276,7 +276,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
     // ou showModal(). Un ACK global les faisait échouer avec InteractionAlreadyReplied.
     // Chaque handler acquitte son interaction avec la méthode adaptée.
     if (interaction.isChatInputCommand()) {
-      if (interaction.commandName === "operation") {
+      if (interaction.commandName === "op") {
         await handleOperationCommand(interaction);
         return;
       }
@@ -958,11 +958,13 @@ client.on(Events.MessageCreate, async (message) => {
 });
 
 async function handleOperationCommand(interaction) {
+  console.log(`[OP] début /op pour ${interaction.user.tag} (${interaction.user.id})`);
   // ACK immédiat : les appels Discord (fetch membre) peuvent dépasser la limite
   // de 3 secondes, surtout après un réveil Render. Sans deferReply, Discord
   // affiche « L’application ne répond plus » même si le bot termine ensuite.
   if (!interaction.deferred && !interaction.replied) {
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+    console.log(`[OP] /op acquitté (deferReply)`);
   }
 
   if (!(await hasPoliceRole(interaction.guild, interaction.user.id))) {
@@ -992,6 +994,7 @@ async function handleOperationCommand(interaction) {
     .setFooter({ text: "ستصبح تلقائياً قائد العملية." });
 
   await interaction.editReply({ embeds: [embed], components: [createOperationTypeSelect()] });
+  console.log(`[OP] menu /op envoyé avec succès`);
 }
 
 async function handlePrimeCommand(interaction) {

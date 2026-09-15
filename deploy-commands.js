@@ -13,7 +13,7 @@ if (!TOKEN || !CLIENT_ID || !GUILD_ID) {
 
 const commands = [
   new SlashCommandBuilder()
-    .setName("operation")
+    .setName("op")
     .setDescription("Créer un nouveau rapport d’opération de police"),
 
   new SlashCommandBuilder()
@@ -57,7 +57,7 @@ const rest = new REST({ version: "10" }).setToken(TOKEN);
 
 async function deployCommands() {
   try {
-    console.log("⏳ Installation des commandes /operation, /prime, /classement, /controleurs, /revision et /rapport-semaine...");
+    console.log("⏳ Installation des commandes /op, /prime, /classement, /controleurs, /revision et /rapport-semaine...");
 
     await rest.put(Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID), {
       body: commands,

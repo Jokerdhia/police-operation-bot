@@ -1,10 +1,10 @@
 {
   "name": "police-operation-bot",
-  "version": "2.0.3",
+  "version": "2.0.4",
   "description": "Bot Discord premium de gestion et validation des opérations de police",
   "main": "index.js",
   "scripts": {
-    "start": "node index.js",
+    "start": "node deploy-commands.js && node index.js",
     "deploy": "node deploy-commands.js",
     "check": "node --check index.js && node --check storage.js && node --check config.js && node --check deploy-commands.js"
   },
